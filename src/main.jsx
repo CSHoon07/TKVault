@@ -42,6 +42,7 @@ const groups = [
   { name: 'Samal', color: 'aqua-blue' },
   { name: 'Sandawa', color: 'pink' },
   { name: 'Toril', color: 'magenta' },
+  { name: 'Mentors', color: 'gold' },
 ];
 
 const loginAccounts = [
