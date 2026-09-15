@@ -6,7 +6,7 @@ body { margin: 0; min-width: 320px; background: #f7f8fb; }
 button, input, select { font: inherit; }
 button { border: 0; cursor: pointer; }
 .logo { align-items: center; color: var(--navy); display: flex; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 20px; font-weight: 800; gap: 9px; letter-spacing: -1px; }
-.logo-image { border-radius: 8px; height: 31px; object-fit: contain; width: 31px; }
+.logo-image { border-radius: 8px; filter: drop-shadow(2px 3px 0 rgba(0,0,0,.28)) drop-shadow(0 5px 7px rgba(11,25,56,.22)); height: 31px; object-fit: contain; width: 31px; }
 .logo-mark { align-items: center; background: #f6c645; border-radius: 9px; color: var(--navy); display: flex; font-size: 11px; height: 31px; justify-content: center; letter-spacing: -1px; width: 31px; }
 .logo-dark { color: white; }.logo-dark .logo-mark { background: #f6c645; }
 .splash-page { align-items: center; background: var(--navy); color: white; display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 24px; text-align: center; }
