@@ -176,7 +176,7 @@ function GroupPage({ onSelect, onLogout, account }) {
 function Sidebar({ active, setActive, onLogout, group, onSettings, onSwitchGroup, isAdministrator, profileImage }) {
   const items = [
     { label: 'Dashboard', icon: LayoutDashboard },
-    { label: "Member's Profile", icon: UsersRound },
+    { label: isAdministrator ? 'Admin Profile' : "Member's Profile", icon: UsersRound },
     { label: 'Collections', icon: WalletCards },
     { label: 'Liquidation Report', icon: FileSpreadsheet },
     ...(isAdministrator ? [{ label: 'Administrator Monitor', icon: ShieldCheck }] : []),
@@ -185,7 +185,21 @@ function Sidebar({ active, setActive, onLogout, group, onSettings, onSwitchGroup
 }
 
 function Header({ onMenu, group, profileImage, onProfile }) {
-  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><button className="profile" onClick={onProfile}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{group}</strong><small>Members</small></span><ChevronDown size={16} /></button></div></header>;
+  const isAdministrator = group === 'Administrator';
+  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><button className="profile" onClick={onProfile}><Avatar initials={isAdministrator ? 'AD' : group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{isAdministrator ? 'Administrator' : group}</strong><small>{isAdministrator ? 'Admin profile' : 'Members'}</small></span><ChevronDown size={16} /></button></div></header>;
+}
+
+const positionOrder = { Provincial: 0, City: 1, Locale: 2, 'K&T': 3 };
+
+function AdministratorProfile({ members }) {
+  const sortedMembers = [...members].sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99) || a.name.localeCompare(b.name));
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Admin Profile</h1><p>All registered members across every group, sorted by position.</p></div></div><section className="panel admin-profile-panel"><div className="panel-heading"><div><h2>Member directory</h2><p>{sortedMembers.length} registered members</p></div><div className="admin-profile-badge"><ShieldCheck size={15} /> Administrator</div></div><div className="admin-member-list">{sortedMembers.length ? sortedMembers.map((member) => <div className="admin-member-row" key={`${member.group}-${member.id}`}><Avatar initials={member.photo} src={member.photo?.startsWith('data:') ? member.photo : undefined} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position}</span></div><span className="admin-member-group">{member.group}</span><span className={`type-pill position-${(member.position || '').toLowerCase().replace('&', 'and')}`}>{member.position}</span></div>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section></div>;
+}
+
+function AdministratorDashboard({ collections, groups }) {
+  const totals = collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Locale Collection') acc.locale += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, locale: 0, dues: 0 });
+  const groupTotals = groups.map((group) => ({ ...group, total: collections.filter((item) => item.group === group.name).reduce((sum, item) => sum + item.amount, 0) }));
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR DASHBOARD · {monthLabel.toUpperCase()}</span><h1>All groups overview</h1><p>Monitor collection performance across every TKVault group.</p></div></div><div className="stats-grid admin-stats-grid"><StatCard title="Total group collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="All groups" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="All groups" /><StatCard title="Locale collections" amount={totals.locale} icon={BarChart3} tone="blue" change="All groups" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="All groups" /></div><section className="panel admin-overview-panel"><div className="panel-heading"><div><h2>Collection overview</h2><p>Totals by group with each group&apos;s color accent</p></div><span className="admin-total-label">{formatCurrency(totals.overall)} total</span></div><div className="admin-group-grid">{groupTotals.map((group) => <article className={`admin-group-card location-${group.color}`} key={group.name}><div><span className="admin-group-dot" /><strong>{group.name}</strong></div><b>{formatCurrency(group.total)}</b><small>{collections.filter((item) => item.group === group.name).length} contributions</small></article>)}</div></section></div>;
 }
 
 function AdministratorMonitor({ collections }) {
@@ -417,7 +431,7 @@ function App() {
   useEffect(() => {
     if (!account) return;
     const saved = localStorage.getItem(`tkvault-profile-${account.username}`);
-    setProfileImage(saved || (group ? groupImage(group) : logoImage));
+    setProfileImage(saved || (account.role === 'administrator' ? logoImage : (group ? groupImage(group) : logoImage)));
   }, [account, group]);
   const addCollection = (item) => { setCollections((current) => [item, ...current]); setModal(false); setActive('Dashboard'); };
   const addMember = (item) => { setMembers((current) => [item, ...current]); setModal(false); setActive("Member's Profile"); };
@@ -441,22 +455,24 @@ function App() {
     setGoal(readGroupData('goal', selectedGroup, 100000));
   };
   const allGroupCollections = account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('collections', item.name, []).map((collection) => ({ ...collection, group: item.name }))) : [];
+  const allGroupMembers = account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('members', item.name, []).map((member) => ({ ...member, group: item.name }))) : [];
   const handleLogin = (loggedInAccount) => {
     setAccount(loggedInAccount);
     setAuth(true);
     if (loggedInAccount.role === 'group') selectGroup(loggedInAccount.group);
     if (loggedInAccount.role === 'administrator') {
       selectGroup(groups[0].name);
-      setActive('Administrator Monitor');
+      setActive('Dashboard');
     }
   };
   const logout = () => { setAuth(false); setAccount(null); setGroup(''); };
   if (showSplash) return <SplashPage />;
   if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
   if (!group) return <GroupPage account={account} onSelect={selectGroup} onLogout={logout} />;
-  const groupTheme = groups.find((item) => item.name === group)?.color || 'royal-blue';
+  const isAdministrator = account.role === 'administrator';
+  const groupTheme = isAdministrator ? 'royal-blue' : groups.find((item) => item.name === group)?.color || 'royal-blue';
   const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
-  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={group} profileImage={profileImage} isAdministrator={account.role === 'administrator'} onSwitchGroup={() => { setGroup(''); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={group} profileImage={profileImage} onProfile={() => setActive("Member's Profile")} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' &&   <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />}{active === "Member's Profile" && <InformationPage members={members} collections={collections} readOnly={account.role === 'administrator'} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}{active === 'Administrator Monitor' && account.role === 'administrator' && <AdministratorMonitor collections={allGroupCollections} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}  {modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}{modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}</div>;
+  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} isAdministrator={isAdministrator} onSwitchGroup={() => { setGroup(''); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={isAdministrator ? 'Administrator' : group} profileImage={isAdministrator ? logoImage : profileImage} onProfile={() => setActive(isAdministrator ? 'Admin Profile' : "Member's Profile")} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && (isAdministrator ? <AdministratorDashboard collections={allGroupCollections} groups={groups} /> : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />)}{active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />}{active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={isAdministrator} />}{active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}  {modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}{modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}</div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
