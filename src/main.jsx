@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowDownToLine,
+  ArrowLeft,
   ArrowUpRight,
   BarChart3,
   CalendarDays,
@@ -169,8 +170,8 @@ function Signup({ onBack }) {
   );
 }
 
-function GroupPage({ onSelect, onLogout, account }) {
-  return <main className="location-page"><div className="location-card"><div className="location-header"><Logo /><button className="location-logout" onClick={onLogout}><LogOut size={15} /> Sign out</button></div><div className="location-intro"><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Which group are you managing?</h1><p>Select a group to open its private TKVault workspace.</p></div><div className="location-grid">{groups.map((group) => <button key={group.name} className={`location-button location-${group.color}`} onClick={() => onSelect(group.name)}><span className="location-dot" />{group.name}<ArrowUpRight size={16} /></button>)}</div><div className="location-footer"><ShieldCheck size={15} /> Signed in as {account.name}. Each group has separate data.</div></div></main>;
+function GroupPage({ onSelect, onBack, account }) {
+  return <main className="location-page"><div className="location-card"><div className="location-header"><Logo /><button className="location-logout" onClick={onBack}><ArrowLeft size={15} /> Back</button></div><div className="location-intro"><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Which group are you managing?</h1><p>Select a group to open its private TKVault workspace.</p></div><div className="location-grid">{groups.map((group) => <button key={group.name} className={`location-button location-${group.color}`} onClick={() => onSelect(group.name)}><span className="location-dot" />{group.name}<ArrowUpRight size={16} /></button>)}</div><div className="location-footer"><ShieldCheck size={15} /> Signed in as {account.name}. Each group has separate data.</div></div></main>;
 }
 
 function Sidebar({ active, setActive, onLogout, group, onSettings, onSwitchGroup, isAdministrator, profileImage }) {
@@ -468,7 +469,7 @@ function App() {
   const logout = () => { setAuth(false); setAccount(null); setGroup(''); };
   if (showSplash) return <SplashPage />;
   if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
-  if (!group) return <GroupPage account={account} onSelect={selectGroup} onLogout={logout} />;
+  if (!group) return <GroupPage account={account} onSelect={selectGroup} onBack={() => { selectGroup(groups[0].name); setActive('Dashboard'); }} />;
   const isAdministrator = account.role === 'administrator';
   const groupTheme = isAdministrator ? 'royal-blue' : groups.find((item) => item.name === group)?.color || 'royal-blue';
   const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
