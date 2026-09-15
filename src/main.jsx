@@ -31,6 +31,19 @@ const groupImage = (group) => {
   const fileName = group === 'JP Laurel' ? 'J.P. Laurel' : group;
   return imageAssets[`./image/${fileName}.png`];
 };
+const accountPassword = (username, fallback) => {
+  try {
+    return JSON.parse(localStorage.getItem(`tkvault-password-${username}`)) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+const readImage = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
+});
 
 const today = new Date().toISOString().slice(0, 10);
 const monthLabel = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(new Date());
@@ -96,7 +109,7 @@ function Login({ onLogin, onSignup }) {
       setError('Enter your username and password.');
       return;
     }
-    const account = loginAccounts.find((item) => item.username.toLowerCase() === username.trim().toLowerCase() && item.password === password);
+    const account = loginAccounts.find((item) => item.username.toLowerCase() === username.trim().toLowerCase() && accountPassword(item.username, item.password) === password);
     if (!account) {
       setError('Incorrect username or password.');
       return;
@@ -150,18 +163,54 @@ function GroupPage({ onSelect, onLogout, account }) {
   return <main className="location-page"><div className="location-card"><div className="location-header"><Logo /><button className="location-logout" onClick={onLogout}><LogOut size={15} /> Sign out</button></div><div className="location-intro"><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Which group are you managing?</h1><p>Select a group to open its private TKVault workspace.</p></div><div className="location-grid">{groups.map((group) => <button key={group.name} className={`location-button location-${group.color}`} onClick={() => onSelect(group.name)}><span className="location-dot" />{group.name}<ArrowUpRight size={16} /></button>)}</div><div className="location-footer"><ShieldCheck size={15} /> Signed in as {account.name}. Each group has separate data.</div></div></main>;
 }
 
-function Sidebar({ active, setActive, onLogout, group }) {
+function Sidebar({ active, setActive, onLogout, group, onSettings, profileImage }) {
   const items = [
     { label: 'Dashboard', icon: LayoutDashboard },
     { label: "Member's Profile", icon: UsersRound },
     { label: 'Collections', icon: WalletCards },
     { label: 'Liquidation Report', icon: FileSpreadsheet },
   ];
-  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={groupImage(group)} /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
+  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom"><button className={`nav-item ${active === 'Settings' ? 'active' : ''}`} onClick={onSettings}><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
 }
 
-function Header({ onMenu, group }) {
-  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><div className="profile"><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={groupImage(group)} /><span><strong>{group}</strong><small>Account</small></span><ChevronDown size={16} /></div></div></header>;
+function Header({ onMenu, group, profileImage }) {
+  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><div className="profile"><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{group}</strong><small>Account</small></span><ChevronDown size={16} /></div></div></header>;
+}
+
+function SettingsPage({ account, group, profileImage, onProfileChange, isAdministrator }) {
+  const [password, setPassword] = useState('');
+  const [notice, setNotice] = useState('');
+  const [requests, setRequests] = useState([]);
+  const refreshRequests = () => {
+    try { setRequests(JSON.parse(localStorage.getItem('tkvault-password-requests')) || []); } catch { setRequests([]); }
+  };
+  useEffect(() => { if (isAdministrator) refreshRequests(); }, [isAdministrator]);
+  const uploadProfile = async (event) => {
+    const file = event.target.files?.[0];
+    if (file) { onProfileChange(await readImage(file)); setNotice('Profile picture updated.'); }
+    event.target.value = '';
+  };
+  const requestPasswordChange = () => {
+    if (password.length < 6) { setNotice('Use a password with at least 6 characters.'); return; }
+    if (isAdministrator) {
+      localStorage.setItem(`tkvault-password-${account.username}`, JSON.stringify(password));
+      setPassword('');
+      setNotice('Administrator password updated.');
+      return;
+    }
+    const current = JSON.parse(localStorage.getItem('tkvault-password-requests') || '[]');
+    localStorage.setItem('tkvault-password-requests', JSON.stringify([...current.filter((item) => item.username !== account.username), { username: account.username, group, password, status: 'pending' }]));
+    setPassword('');
+    setNotice('Request sent to the administrator for approval.');
+    refreshRequests();
+  };
+  const decideRequest = (request, approved) => {
+    if (approved) localStorage.setItem(`tkvault-password-${request.username}`, JSON.stringify(request.password));
+    const next = requests.filter((item) => item.username !== request.username);
+    localStorage.setItem('tkvault-password-requests', JSON.stringify(next));
+    setRequests(next);
+  };
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ACCOUNT SETTINGS</span><h1>Settings</h1><p>Manage your profile and account access.</p></div></div><section className="panel settings-panel"><div className="settings-profile"><Avatar initials={group.slice(0, 2).toUpperCase()} src={profileImage} color="coral" /><div><h2>{account.name}</h2><p>{account.username}</p><label className="button button-quiet upload-label"><Upload size={15} /> Upload profile picture<input type="file" accept="image/*" onChange={uploadProfile} /></label></div></div><div className="settings-form"><h2>Change password</h2><p className="muted">{isAdministrator ? 'Administrator password changes take effect immediately.' : 'Requests are sent to the administrator for approval.'}</p><div className="settings-password-row"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" /><button className="button button-primary" onClick={requestPasswordChange}>{isAdministrator ? 'Save password' : 'Request change'}</button></div>{notice && <p className="settings-notice">{notice}</p>}</div>{isAdministrator && <div className="settings-requests"><h2>Password change requests</h2>{requests.length ? requests.map((request) => <div className="settings-request" key={request.username}><span><strong>{request.group}</strong><small>{request.username}</small></span><button className="button button-quiet" onClick={() => decideRequest(request, false)}>Deny</button><button className="button button-primary" onClick={() => decideRequest(request, true)}>Allow</button></div>) : <p className="muted">No pending requests.</p>}</div>}</section></div>;
 }
 
 function StatCard({ title, amount, icon: Icon, tone, change }) {
@@ -172,11 +221,10 @@ function CollectionRow({ collection }) {
   return <div className="collection-row"><Avatar initials={collection.photo} src={collection.photo?.startsWith('data:') ? collection.photo : undefined} color={collection.color} /><div className="collection-person"><strong>{collection.name}</strong><span>{collection.position}</span></div><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span><strong className="row-amount">{formatCurrency(collection.amount)}</strong><span className="row-date">{new Date(`${collection.date}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}</span><button className="row-more">•••</button></div>;
 }
 
-function Dashboard({ collections, onAdd }) {
+function Dashboard({ collections, onAdd, goal, onGoalChange, onViewAll }) {
   const totals = useMemo(() => collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Locale Collection') acc.locale += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, locale: 0, dues: 0 }), [collections]);
-  const goal = 100000;
   const progress = Math.min(Math.round((totals.overall / goal) * 100), 100);
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add collection</button></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Locale collections" amount={totals.locale} icon={BarChart3} tone="blue" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel"><div className="panel-heading"><div><h2>Collection overview</h2><p>Monthly performance at a glance</p></div><button className="select-button">Last 6 months <ChevronDown size={15} /></button></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d="M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18 L600 200 L0 200Z" fill="url(#area)" /><path d="M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18" fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><h2>Monthly goal</h2><p>₱100,000 target</p></div><button className="more-button">•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button">View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add collection</button></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Locale collections" amount={totals.locale} icon={BarChart3} tone="blue" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel"><div className="panel-heading"><div><h2>Collection overview</h2><p>Monthly performance at a glance</p></div><button className="select-button">Last 6 months <ChevronDown size={15} /></button></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d="M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18 L600 200 L0 200Z" fill="url(#area)" /><path d="M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18" fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><h2>Monthly goal</h2><p>{formatCurrency(goal)} target</p></div><button className="more-button" onClick={() => { const next = window.prompt('Set monthly goal', goal); if (next !== null && Number(next) > 0) onGoalChange(Number(next)); }}>•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button" onClick={onViewAll}>View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section></div>;
 }
 
 function CollectionsPage({ collections, onAdd }) {
@@ -299,6 +347,8 @@ function App() {
   const [members, setMembers] = useState([]);
   const [report, setReport] = useState(null);
   const [receipts, setReceipts] = useState([]);
+  const [goal, setGoal] = useState(100000);
+  const [profileImage, setProfileImage] = useState('');
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 1600);
     return () => window.clearTimeout(timer);
@@ -322,7 +372,13 @@ function App() {
     if (!group) return;
     localStorage.setItem(`tkvault-report-${group}`, JSON.stringify(report));
     localStorage.setItem(`tkvault-receipts-${group}`, JSON.stringify(receipts));
+    localStorage.setItem(`tkvault-goal-${group}`, JSON.stringify(goal));
   }, [report, receipts, group]);
+  useEffect(() => {
+    if (!account) return;
+    const saved = localStorage.getItem(`tkvault-profile-${account.username}`);
+    setProfileImage(saved || (group ? groupImage(group) : logoImage));
+  }, [account, group]);
   const addCollection = (item) => { setCollections((current) => [item, ...current]); setModal(false); setActive('Dashboard'); };
   const addMember = (item) => { setMembers((current) => [item, ...current]); setModal(false); setActive("Member's Profile"); };
   const editMember = (item) => { setMembers((current) => current.map((member) => member.id === item.id ? item : member)); setCollections((current) => current.map((collection) => collection.memberId === item.id ? { ...collection, name: item.name, position: item.position, photo: item.photo, color: item.color } : collection)); setModal(false); };
@@ -342,6 +398,7 @@ function App() {
     setMembers(cleanMembers);
     setReport(readGroupData('report', selectedGroup, null));
     setReceipts(readGroupData('receipts', selectedGroup, []));
+    setGoal(readGroupData('goal', selectedGroup, 100000));
   };
   const handleLogin = (loggedInAccount) => {
     setAccount(loggedInAccount);
@@ -353,7 +410,8 @@ function App() {
   if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
   if (!group) return <GroupPage account={account} onSelect={selectGroup} onLogout={logout} />;
   const groupTheme = groups.find((item) => item.name === group)?.color || 'royal-blue';
-  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={group} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={group} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && <Dashboard collections={collections} onAdd={() => { setActive('Collections'); setModal('collection'); }} />}{active === "Member's Profile" && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}{modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}</div>;
+  const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
+  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={group} profileImage={profileImage} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={group} profileImage={profileImage} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && <Dashboard collections={collections} goal={goal} onGoalChange={setGoal} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />}{active === "Member's Profile" && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}{modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}</div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

@@ -103,8 +103,29 @@ button { border: 0; cursor: pointer; }
 .file-preview-image { display: block; max-height: 260px; max-width: 100%; object-fit: contain; width: 100%; }
 .file-preview-frame { border: 0; height: 260px; width: 100%; }
 .file-preview-placeholder { align-items: center; color: #8994aa; display: flex; font-size: 12px; gap: 8px; justify-content: center; min-height: 70px; padding: 16px; }
+.settings-panel { max-width: 760px; }
+.settings-profile { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 16px; padding-bottom: 22px; }
+.settings-profile .avatar { height: 68px; width: 68px; }
+.settings-profile h2, .settings-form h2, .settings-requests h2 { color: var(--navy); font-family: 'Plus Jakarta Sans', sans-serif; font-size: 16px; margin: 0 0 5px; }
+.settings-profile p { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+.settings-form { border-bottom: 1px solid var(--line); padding: 24px 0; }
+.settings-form .muted { margin: 0 0 14px; }
+.settings-password-row { display: flex; gap: 10px; }
+.settings-password-row input { border: 1px solid #e1e5ee; border-radius: 9px; min-width: 0; padding: 12px 13px; width: 280px; }
+.settings-notice { color: #4c8d6a; font-size: 12px; margin: 12px 0 0; }
+.settings-requests { padding-top: 24px; }
+.settings-request { align-items: center; border-top: 1px solid #f0f2f6; display: flex; gap: 8px; padding: 12px 0; }
+.settings-request > span { flex: 1; min-width: 0; }
+.settings-request strong, .settings-request small { display: block; }
+.settings-request strong { color: var(--navy); font-size: 12px; }
+.settings-request small { color: var(--muted); font-size: 10px; margin-top: 3px; }
+.settings-request .button { font-size: 11px; padding: 8px 10px; }
 @media (max-width: 600px) {
-  .ledger-head { display: none; }
+  .ledger-head { display: none;     .settings-password-row { align-items: stretch; flex-direction: column; }
+    .settings-password-row input { width: 100%; }
+    .settings-request { align-items: stretch; flex-wrap: wrap; }
+    .settings-request > span { flex-basis: 100%; }
+  }
   .ledger-list { overflow: visible; }
   .ledger-list .collection-row,
   .collection-list .collection-row {
