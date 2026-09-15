@@ -29,7 +29,7 @@ const imageAssets = import.meta.glob('./image/*.png', { eager: true, query: '?ur
 const logoImage = imageAssets['./image/logo.png'];
 const groupImage = (group) => {
   const fileName = group === 'JP Laurel' ? 'J.P. Laurel' : group;
-  return imageAssets[`./image/${fileName}.png`];
+  return imageAssets[`./image/${fileName}.png`] || logoImage;
 };
 const accountPassword = (username, fallback) => {
   try {
@@ -84,14 +84,14 @@ const typeClass = (type) => type.split(' ')[0].toLowerCase();
 function Logo({ dark = false }) {
   return (
     <div className={`logo ${dark ? 'logo-dark' : ''}`}>
-      <img className="logo-image" src={logoImage} alt="TKVault logo" />
+      <img className="logo-image" src={logoImage} alt="TKVault logo" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
       <span>TKVault</span>
     </div>
   );
 }
 
 function Avatar({ initials, color = 'blue', src }) {
-  return src ? <img className="avatar avatar-image" src={src} alt="" /> : <div className={`avatar avatar-${color}`}>{initials}</div>;
+  return src ? <img className="avatar avatar-image" src={src} alt="" onError={(event) => { event.currentTarget.src = logoImage; }} /> : <div className={`avatar avatar-${color}`}>{initials}</div>;
 }
 
 function SplashPage() {
@@ -163,14 +163,14 @@ function GroupPage({ onSelect, onLogout, account }) {
   return <main className="location-page"><div className="location-card"><div className="location-header"><Logo /><button className="location-logout" onClick={onLogout}><LogOut size={15} /> Sign out</button></div><div className="location-intro"><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Which group are you managing?</h1><p>Select a group to open its private TKVault workspace.</p></div><div className="location-grid">{groups.map((group) => <button key={group.name} className={`location-button location-${group.color}`} onClick={() => onSelect(group.name)}><span className="location-dot" />{group.name}<ArrowUpRight size={16} /></button>)}</div><div className="location-footer"><ShieldCheck size={15} /> Signed in as {account.name}. Each group has separate data.</div></div></main>;
 }
 
-function Sidebar({ active, setActive, onLogout, group, onSettings, profileImage }) {
+function Sidebar({ active, setActive, onLogout, group, onSettings, onSwitchGroup, isAdministrator, profileImage }) {
   const items = [
     { label: 'Dashboard', icon: LayoutDashboard },
     { label: "Member's Profile", icon: UsersRound },
     { label: 'Collections', icon: WalletCards },
     { label: 'Liquidation Report', icon: FileSpreadsheet },
   ];
-  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom"><button className={`nav-item ${active === 'Settings' ? 'active' : ''}`} onClick={onSettings}><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
+  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom">{isAdministrator && <button className="nav-item" onClick={onSwitchGroup}><UsersRound size={18} /><span>Switch group</span></button>}<button className={`nav-item ${active === 'Settings' ? 'active' : ''}`} onClick={onSettings}><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={profileImage} /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
 }
 
 function Header({ onMenu, group, profileImage }) {
@@ -411,7 +411,7 @@ function App() {
   if (!group) return <GroupPage account={account} onSelect={selectGroup} onLogout={logout} />;
   const groupTheme = groups.find((item) => item.name === group)?.color || 'royal-blue';
   const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
-  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={group} profileImage={profileImage} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={group} profileImage={profileImage} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && <Dashboard collections={collections} goal={goal} onGoalChange={setGoal} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />}{active === "Member's Profile" && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}{modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}</div>;
+  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={group} profileImage={profileImage} isAdministrator={account.role === 'administrator'} onSwitchGroup={() => { setGroup(''); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={group} profileImage={profileImage} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && <Dashboard collections={collections} goal={goal} onGoalChange={setGoal} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />}{active === "Member's Profile" && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}{modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}</div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
