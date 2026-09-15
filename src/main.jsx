@@ -86,12 +86,16 @@ function SplashPage() {
 }
 
 function Login({ onLogin, onSignup }) {
-  const [username, setUsername] = useState('admin@tkvault.com');
-  const [password, setPassword] = useState('password');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const submit = (event) => {
     event.preventDefault();
+    if (!username.trim() || !password) {
+      setError('Enter your username and password.');
+      return;
+    }
     const account = loginAccounts.find((item) => item.username.toLowerCase() === username.trim().toLowerCase() && item.password === password);
     if (!account) {
       setError('Incorrect username or password.');
@@ -125,7 +129,6 @@ function Login({ onLogin, onSignup }) {
             {error && <div className="form-error">{error}</div>}
             <button className="button button-primary button-full" type="submit">Login <ArrowUpRight size={17} /></button>
           </form>
-          <div className="demo-hint"><Sparkles size={15} /><span>Admin: admin@tkvault.com / password</span></div>
           <p className="auth-footer">New to TKVault? <button className="text-button" onClick={onSignup}>Create an account</button></p>
         </div>
       </section>
