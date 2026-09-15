@@ -48,6 +48,28 @@ const readImage = (file) => new Promise((resolve, reject) => {
   reader.onerror = () => reject(reader.error);
   reader.readAsDataURL(file);
 });
+function ImageCropper({ source, onCancel, onSave }) {
+  const [zoom, setZoom] = useState(1);
+  const [offsetX, setOffsetX] = useState(0);
+  const [offsetY, setOffsetY] = useState(0);
+  const saveCrop = () => {
+    const image = new Image();
+    image.onload = () => {
+      const size = 640;
+      const scale = Math.max(size / image.width, size / image.height) * zoom;
+      const maxX = Math.max(0, image.width * scale - size) / 2;
+      const maxY = Math.max(0, image.height * scale - size) / 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, (size - image.width * scale) / 2 + (offsetX / 100) * maxX, (size - image.height * scale) / 2 + (offsetY / 100) * maxY, image.width * scale, image.height * scale);
+      onSave(canvas.toDataURL('image/jpeg', 0.88));
+    };
+    image.src = source;
+  };
+  return <div className="modal-backdrop crop-backdrop"><div className="modal crop-modal"><div className="modal-heading"><div><span className="eyebrow">PROFILE PHOTO</span><h2>Crop your picture</h2><p>Adjust the zoom and position before saving.</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><div className="crop-preview"><img src={source} alt="Crop preview" style={{ transform: `translate(${offsetX / 4}%, ${offsetY / 4}%) scale(${zoom})` }} /></div><div className="crop-controls"><label>Zoom<input type="range" min="1" max="3" step=".05" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label><label>Horizontal position<input type="range" min="-100" max="100" value={offsetX} onChange={(event) => setOffsetX(Number(event.target.value))} /></label><label>Vertical position<input type="range" min="-100" max="100" value={offsetY} onChange={(event) => setOffsetY(Number(event.target.value))} /></label></div><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button type="button" className="button button-primary" onClick={saveCrop}><Check size={16} /> Use this photo</button></div></div></div>;
+}
 
 const today = new Date().toISOString().slice(0, 10);
 const monthLabel = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(new Date());
@@ -223,13 +245,14 @@ function SettingsPage({ account, group, profileImage, onProfileChange, isAdminis
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
   const [requests, setRequests] = useState([]);
+  const [cropSource, setCropSource] = useState('');
   const refreshRequests = () => {
     try { setRequests(JSON.parse(localStorage.getItem('tkvault-password-requests')) || []); } catch { setRequests([]); }
   };
   useEffect(() => { if (isAdministrator) refreshRequests(); }, [isAdministrator]);
   const uploadProfile = async (event) => {
     const file = event.target.files?.[0];
-    if (file) { onProfileChange(await readImage(file)); setNotice('Profile picture updated.'); }
+    if (file) setCropSource(await readImage(file));
     event.target.value = '';
   };
   const requestPasswordChange = () => {
@@ -252,7 +275,7 @@ function SettingsPage({ account, group, profileImage, onProfileChange, isAdminis
     localStorage.setItem('tkvault-password-requests', JSON.stringify(next));
     setRequests(next);
   };
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ACCOUNT SETTINGS</span><h1>Settings</h1><p>Manage your profile and account access.</p></div></div><section className="panel settings-panel"><div className="settings-profile"><Avatar initials={group.slice(0, 2).toUpperCase()} src={profileImage} color="coral" /><div><h2>{account.name}</h2><p>{account.username}</p><label className="button button-quiet upload-label"><Upload size={15} /> Upload profile picture<input type="file" accept="image/*" onChange={uploadProfile} /></label></div></div><div className="settings-form"><h2>Change password</h2><p className="muted">{isAdministrator ? 'Administrator password changes take effect immediately.' : 'Requests are sent to the administrator for approval.'}</p><div className="settings-password-row"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" /><button className="button button-primary" onClick={requestPasswordChange}>{isAdministrator ? 'Save password' : 'Request change'}</button></div>{notice && <p className="settings-notice">{notice}</p>}</div>{isAdministrator && <div className="settings-requests"><h2>Password change requests</h2>{requests.length ? requests.map((request) => <div className="settings-request" key={request.username}><span><strong>{request.group}</strong><small>{request.username}</small></span><button className="button button-quiet" onClick={() => decideRequest(request, false)}>Deny</button><button className="button button-primary" onClick={() => decideRequest(request, true)}>Allow</button></div>) : <p className="muted">No pending requests.</p>}</div>}</section></div>;
+  return <><div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ACCOUNT SETTINGS</span><h1>Settings</h1><p>Manage your profile and account access.</p></div></div><section className="panel settings-panel"><div className="settings-profile"><Avatar initials={group.slice(0, 2).toUpperCase()} src={profileImage} color="coral" /><div><h2>{account.name}</h2><p>{account.username}</p><label className="button button-quiet upload-label"><Upload size={15} /> Upload profile picture<input type="file" accept="image/*" onChange={uploadProfile} /></label></div></div><div className="settings-form"><h2>Change password</h2><p className="muted">{isAdministrator ? 'Administrator password changes take effect immediately.' : 'Requests are sent to the administrator for approval.'}</p><div className="settings-password-row"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" /><button className="button button-primary" onClick={requestPasswordChange}>{isAdministrator ? 'Save password' : 'Request change'}</button></div>{notice && <p className="settings-notice">{notice}</p>}</div>{isAdministrator && <div className="settings-requests"><h2>Password change requests</h2>{requests.length ? requests.map((request) => <div className="settings-request" key={request.username}><span><strong>{request.group}</strong><small>{request.username}</small></span><button className="button button-quiet" onClick={() => decideRequest(request, false)}>Deny</button><button className="button button-primary" onClick={() => decideRequest(request, true)}>Allow</button></div>) : <p className="muted">No pending requests.</p>}</div>}</section></div>{cropSource && <ImageCropper source={cropSource} onCancel={() => setCropSource('')} onSave={(image) => { onProfileChange(image); setCropSource(''); setNotice('Profile picture updated.'); }} />}</>;
 }
 
 function StatCard({ title, amount, icon: Icon, tone, change }) {
@@ -337,12 +360,13 @@ function InformationPage({ members, collections, onAdd, onEdit, onDelete, readOn
 
 function AddMember({ member, onSubmit, onCancel }) {
   const [form, setForm] = useState({ name: member?.name || '', position: member?.position || 'Provincial', photo: member?.photo || '' });
+  const [cropSource, setCropSource] = useState('');
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const uploadPhoto = (event) => {
     const photo = event.target.files?.[0];
     if (!photo) return;
     const reader = new FileReader();
-    reader.onload = () => update('photo', reader.result);
+    reader.onload = () => setCropSource(reader.result);
     reader.readAsDataURL(photo);
     event.target.value = '';
   };
@@ -354,11 +378,11 @@ function AddMember({ member, onSubmit, onCancel }) {
       id: member?.id || Date.now(),
       name: form.name,
       position: form.position,
-      photo: form.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+      photo: form.photo || form.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
       color: 'blue',
     });
   };
-  return <div className="modal-backdrop"><div className="modal"><div className="modal-heading"><div><span className="eyebrow">MEMBER DIRECTORY</span><h2>{member ? 'Edit member profile' : 'Add member profile'}</h2><p>{member ? 'Update this member profile.' : 'Create a member profile for your group.'}</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><form onSubmit={submit} className="modal-form"><div className="member-photo-upload">{form.photo?.startsWith('data:') ? <img className="upload-preview" src={form.photo} alt="Selected member" /> : <div className="upload-placeholder"><UserRound size={24} /></div>}<div><strong>Profile photo</strong><label className="text-button upload-label"><Upload size={14} /> Upload photo<input type="file" accept="image/*" onChange={uploadPhoto} /></label><small>Optional</small></div></div><label>Full name<input autoFocus value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Ana Reyes" /></label><label>Position<select value={form.position} onChange={(event) => update('position', event.target.value)}><option>Provincial</option><option>City</option><option>Locale</option><option>K&amp;T</option></select></label><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button className="button button-primary" type="submit">{member ? <Check size={16} /> : <Plus size={16} />} {member ? 'Save changes' : 'Add member'}</button></div></form></div></div>;
+  return <><div className="modal-backdrop"><div className="modal"><div className="modal-heading"><div><span className="eyebrow">MEMBER DIRECTORY</span><h2>{member ? 'Edit member profile' : 'Add member profile'}</h2><p>{member ? 'Update this member profile.' : 'Create a member profile for your group.'}</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><form onSubmit={submit} className="modal-form"><div className="member-photo-upload">{form.photo?.startsWith('data:') ? <img className="upload-preview" src={form.photo} alt="Selected member" /> : <div className="upload-placeholder"><UserRound size={24} /></div>}<div><strong>Profile photo</strong><label className="text-button upload-label"><Upload size={14} /> Upload photo<input type="file" accept="image/*" onChange={uploadPhoto} /></label><small>Optional</small></div></div><label>Full name<input autoFocus value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Ana Reyes" /></label><label>Position<select value={form.position} onChange={(event) => update('position', event.target.value)}><option>Provincial</option><option>City</option><option>Locale</option><option>K&amp;T</option></select></label><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button className="button button-primary" type="submit">{member ? <Check size={16} /> : <Plus size={16} />} {member ? 'Save changes' : 'Add member'}</button></div></form></div></div>{cropSource && <ImageCropper source={cropSource} onCancel={() => setCropSource('')} onSave={(image) => { update('photo', image); setCropSource(''); }} />}</>;
 }
 
 function LiquidationPage({ report, onReportChange, receipts, onReceiptChange }) {
@@ -409,6 +433,7 @@ function App() {
   const [receipts, setReceipts] = useState([]);
   const [goal, setGoal] = useState(100000);
   const [profileImage, setProfileImage] = useState('');
+  const [adminGroupView, setAdminGroupView] = useState(false);
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 5000);
     return () => window.clearTimeout(timer);
@@ -447,8 +472,9 @@ function App() {
     setMembers((current) => current.filter((member) => member.id !== item.id));
     setCollections((current) => current.filter((collection) => collection.memberId !== item.id && collection.name !== item.name));
   };
-  const selectGroup = (selectedGroup) => {
+  const selectGroup = (selectedGroup, openGroupWorkspace = false) => {
     setGroup(selectedGroup);
+    setAdminGroupView(openGroupWorkspace);
     const demoNames = new Set(['Maya Santos', 'Rafael Cruz', 'Jasmine Lee', 'Andre Villanueva']);
     const storedCollections = readGroupData('collections', selectedGroup, []);
     const storedMembers = readGroupData('members', selectedGroup, []);
@@ -474,11 +500,11 @@ function App() {
   const logout = () => { setAuth(false); setAccount(null); setGroup(''); };
   if (showSplash) return <SplashPage />;
   if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
-  if (!group) return <GroupPage account={account} onSelect={selectGroup} onBack={() => { selectGroup(groups[0].name); setActive('Dashboard'); }} />;
-  const isAdministrator = account.role === 'administrator';
+  if (!group) return <GroupPage account={account} onSelect={(selectedGroup) => selectGroup(selectedGroup, true)} onBack={() => { selectGroup(groups[0].name); setActive('Dashboard'); }} />;
+  const isAdministrator = account.role === 'administrator' && !adminGroupView;
   const groupTheme = isAdministrator ? 'royal-blue' : groups.find((item) => item.name === group)?.color || 'royal-blue';
   const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
-  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} isAdministrator={isAdministrator} onSwitchGroup={() => { setGroup(''); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} onProfile={() => setActive(isAdministrator ? 'Admin Profile' : "Member's Profile")} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && (isAdministrator ? <AdministratorDashboard collections={allGroupCollections} groups={groups} /> : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />)}{active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />}{active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={isAdministrator} />}{active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}  {modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}{modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}</div>;
+  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} isAdministrator={isAdministrator} onSwitchGroup={() => { setGroup(''); setAdminGroupView(false); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} /><main className="main-area"><Header group={isAdministrator ? 'Administrator' : group} profileImage={isAdministrator ? profileImage : profileImage} onProfile={() => setActive(isAdministrator ? 'Admin Profile' : "Member's Profile")} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && (isAdministrator ? <AdministratorDashboard collections={allGroupCollections} groups={groups} /> : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />)}{active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />}{active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} onAdd={() => setModal('member')} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' && <CollectionsPage collections={collections} onAdd={() => setModal('collection')} />}{active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}{active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}</main>{modal === 'member' && <AddMember onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}  {modal === 'collection' && <AddCollection members={members} onSubmit={addCollection} onCancel={() => setModal(false)} />}{modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}</div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
