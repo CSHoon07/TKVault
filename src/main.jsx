@@ -53,8 +53,8 @@ const groups = [
 ];
 
 const loginAccounts = [
-  { username: 'admin@tkvault.com', password: 'password', role: 'administrator', name: 'Administrator' },
-  ...groups.map((group) => ({
+  { username: 'admin@tkvault.com', password: 'TKVaultAdmin2026!', role: 'administrator', name: 'Administrator' },
+  ...groups.filter((group) => group.name !== 'Mentors').map((group) => ({
     username: `${group.name.toLowerCase().replace(' ', '')}@tkvault.com`,
     password: `${group.name.toLowerCase().replace(' ', '')}123`,
     role: 'group',
