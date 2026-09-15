@@ -25,6 +25,13 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
+const imageAssets = import.meta.glob('./image/*.png', { eager: true, query: '?url', import: 'default' });
+const logoImage = imageAssets['./image/logo.png'];
+const groupImage = (group) => {
+  const fileName = group === 'JP Laurel' ? 'J.P. Laurel' : group;
+  return imageAssets[`./image/${fileName}.png`];
+};
+
 const today = new Date().toISOString().slice(0, 10);
 const monthLabel = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(new Date());
 
@@ -64,14 +71,18 @@ const typeClass = (type) => type.split(' ')[0].toLowerCase();
 function Logo({ dark = false }) {
   return (
     <div className={`logo ${dark ? 'logo-dark' : ''}`}>
-      <span className="logo-mark">TK</span>
+      <img className="logo-image" src={logoImage} alt="TKVault logo" />
       <span>TKVault</span>
     </div>
   );
 }
 
 function Avatar({ initials, color = 'blue', src }) {
-  return src ? <img className="avatar" src={src} alt="" /> : <div className={`avatar avatar-${color}`}>{initials}</div>;
+  return src ? <img className="avatar avatar-image" src={src} alt="" /> : <div className={`avatar avatar-${color}`}>{initials}</div>;
+}
+
+function SplashPage() {
+  return <main className="splash-page"><img src={logoImage} alt="TKVault logo" /><h1>TKVault</h1><p>Every contribution, beautifully accounted for.</p></main>;
 }
 
 function Login({ onLogin, onSignup }) {
@@ -143,11 +154,11 @@ function Sidebar({ active, setActive, onLogout, group }) {
     { label: 'Collections', icon: WalletCards },
     { label: 'Liquidation Report', icon: FileSpreadsheet },
   ];
-  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
+  return <aside className="sidebar"><div className="sidebar-top"><Logo dark /><button className="close-nav"><X size={18} /></button></div><nav><span className="nav-label">WORKSPACE</span>{items.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => setActive(label)}><Icon size={18} /><span>{label}</span>{label === 'Dashboard' && <span className="active-dot" />}</button>)}</nav><div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Settings</span></button><button className="profile-mini" onClick={onLogout}><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={groupImage(group)} /><span><strong>{group}</strong><small>Sign out</small></span><LogOut size={16} /></button></div></aside>;
 }
 
 function Header({ onMenu, group }) {
-  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><div className="profile"><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" /><span><strong>{group}</strong><small>Account</small></span><ChevronDown size={16} /></div></div></header>;
+  return <header className="topbar"><button className="menu-button" onClick={onMenu}><Menu size={21} /></button><div className="breadcrumbs"><span>{group}</span><span>/</span><strong>Dashboard</strong></div><div className="topbar-actions"><button className="icon-button"><Search size={19} /></button><div className="profile"><Avatar initials={group.slice(0, 2).toUpperCase()} color="coral" src={groupImage(group)} /><span><strong>{group}</strong><small>Account</small></span><ChevronDown size={16} /></div></div></header>;
 }
 
 function StatCard({ title, amount, icon: Icon, tone, change }) {
@@ -273,6 +284,7 @@ function LiquidationPage({ report, onReportChange, receipts, onReceiptChange }) 
 }
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [auth, setAuth] = useState(false);
   const [signup, setSignup] = useState(false);
   const [account, setAccount] = useState(null);
@@ -284,6 +296,10 @@ function App() {
   const [members, setMembers] = useState([]);
   const [report, setReport] = useState(null);
   const [receipts, setReceipts] = useState([]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowSplash(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, []);
   const readGroupData = (key, selectedGroup, fallback) => {
     try {
       return JSON.parse(localStorage.getItem(`tkvault-${key}-${selectedGroup}`)) || fallback;
@@ -330,6 +346,7 @@ function App() {
     if (loggedInAccount.role === 'group') selectGroup(loggedInAccount.group);
   };
   const logout = () => { setAuth(false); setAccount(null); setGroup(''); };
+  if (showSplash) return <SplashPage />;
   if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
   if (!group) return <GroupPage account={account} onSelect={selectGroup} onLogout={logout} />;
   const groupTheme = groups.find((item) => item.name === group)?.color || 'royal-blue';
