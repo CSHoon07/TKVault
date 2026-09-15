@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "TKVault",
+    "slug": "tkvault",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0b1938"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0b1938"
+      }
+    }
+  }
+}

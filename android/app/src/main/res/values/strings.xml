@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TKVault</string>
+    <string name="title_activity_main">TKVault</string>
+    <string name="package_name">com.tkvault.app</string>
+    <string name="custom_url_scheme">com.tkvault.app</string>
+</resources>
