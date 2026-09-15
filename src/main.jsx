@@ -404,7 +404,7 @@ function App() {
   const [goal, setGoal] = useState(100000);
   const [profileImage, setProfileImage] = useState('');
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowSplash(false), 10000);
+    const timer = window.setTimeout(() => setShowSplash(false), 5000);
     return () => window.clearTimeout(timer);
   }, []);
   const readGroupData = (key, selectedGroup, fallback) => {
