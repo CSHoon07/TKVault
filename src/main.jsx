@@ -23,6 +23,7 @@ import {
   WalletCards,
   Eye,
   EyeOff,
+  LoaderCircle,
   X,
 } from 'lucide-react';
 import './styles.css';
@@ -105,9 +106,12 @@ function Login({ onLogin, onSignup }) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const submit = (event) => {
     event.preventDefault();
+    if (isLoading) return;
+    setError('');
     if (!username.trim() || !password) {
       setError('Enter your username and password.');
       return;
@@ -117,7 +121,10 @@ function Login({ onLogin, onSignup }) {
       setError('Incorrect username or password.');
       return;
     }
-    onLogin({ ...account, initials: account.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() });
+    setIsLoading(true);
+    window.setTimeout(() => {
+      onLogin({ ...account, initials: account.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() });
+    }, 700);
   };
 
   return (
@@ -143,7 +150,7 @@ function Login({ onLogin, onSignup }) {
             <label>Username or email<input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="you@example.com" /></label>
             <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" /><button className="password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
             {error && <div className="form-error">{error}</div>}
-            <button className="button button-primary button-full" type="submit">Login <ArrowUpRight size={17} /></button>
+            <button className="button button-primary button-full" type="submit" disabled={isLoading}>{isLoading ? <><LoaderCircle className="loading-spinner" size={17} /> Signing in...</> : <>Login <ArrowUpRight size={17} /></>}</button>
           </form>
           <p className="auth-footer">New to TKVault? <button className="text-button" onClick={onSignup}>Create an account</button></p>
         </div>
@@ -383,7 +390,7 @@ function App() {
   const [goal, setGoal] = useState(100000);
   const [profileImage, setProfileImage] = useState('');
   useEffect(() => {
-    const timer = window.setTimeout(() => setShowSplash(false), 1600);
+    const timer = window.setTimeout(() => setShowSplash(false), 10000);
     return () => window.clearTimeout(timer);
   }, []);
   const readGroupData = (key, selectedGroup, fallback) => {
