@@ -21,6 +21,8 @@ import {
   UserRound,
   UsersRound,
   WalletCards,
+  Eye,
+  EyeOff,
   X,
 } from 'lucide-react';
 import './styles.css';
@@ -101,6 +103,7 @@ function SplashPage() {
 function Login({ onLogin, onSignup }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
 
   const submit = (event) => {
@@ -138,7 +141,7 @@ function Login({ onLogin, onSignup }) {
           <p className="muted">Manage your collections with clarity.</p>
           <form onSubmit={submit}>
             <label>Username or email<input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="you@example.com" /></label>
-            <label>Password<div className="password-field"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" /><span>•••</span></div></label>
+            <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" /><button className="password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
             {error && <div className="form-error">{error}</div>}
             <button className="button button-primary button-full" type="submit">Login <ArrowUpRight size={17} /></button>
           </form>
