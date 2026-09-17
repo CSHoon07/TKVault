@@ -163,6 +163,13 @@ button { border: 0; cursor: pointer; }
   .collection-row .row-more { align-self: start; grid-column: 3; grid-row: 2 / span 2; }
 }
 .page-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.mentors-cashflow-row { grid-template-columns: 35px minmax(170px, 1.5fr) minmax(90px, .7fr) minmax(100px, 1fr) minmax(110px, 1fr); }
+.usage-form { display: flex; gap: 10px; margin-top: 18px; }
+.usage-form input:first-child { flex: 1; }
+.usage-row { align-items: center; border-top: 1px solid #f0f2f6; display: flex; gap: 12px; padding: 12px 0; }
+.usage-row > span { flex: 1; }
+.usage-row span strong, .usage-row span small { display: block; }
+.usage-row small { color: #98a2b5; font-size: 10px; margin-top: 3px; }
 .sheet-link-form { align-items: end; display: flex; gap: 10px; margin-top: 20px; }
 .sheet-link-form label { flex: 1; }
 .sheet-link-form input { margin-top: 7px; }
@@ -182,5 +189,10 @@ button { border: 0; cursor: pointer; }
   .mentors-summary-grid { gap: 9px; grid-template-columns: 1fr 1fr; }
   .mentors-summary-grid .stat-card { min-width: 0; padding: 14px 12px; }
   .mentors-summary-grid .stat-card p { font-size: 10px; }
+  .mentors-cashflow-row { grid-template-columns: 35px minmax(0, 1fr); }
+  .mentors-cashflow-row .cashflow-rate { grid-column: 2; }
+  .mentors-cashflow-row .cashflow-paid { grid-column: 2; }
+  .mentors-cashflow-row .cashflow-unpaid { grid-column: 2; }
+  .usage-form { flex-direction: column; }
   .sheet-link-form { align-items: stretch; flex-direction: column; }
 }
