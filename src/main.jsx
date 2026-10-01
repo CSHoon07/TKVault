@@ -226,18 +226,47 @@ function Header({ onMenu, group, profileImage, onProfile }) {
 }
 
 const positionOrder = { Provincial: 0, City: 1, Locale: 2, 'K&T': 3 };
+const defaultEventOptions = ['Locale Pasalamat/Midyear', 'SPBB', 'Funagtapok', 'Featured TK', 'Pagsulong', 'SK'];
+const loadEventOptions = () => {
+  try {
+    return JSON.parse(localStorage.getItem('tkvault-event-options')) || defaultEventOptions;
+  } catch {
+    return defaultEventOptions;
+  }
+};
 
 function AdministratorProfile({ members }) {
-  const sortedMembers = [...members].sort((a, b) => (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99) || a.name.localeCompare(b.name));
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Admin Profile</h1><p>All registered members across every group, sorted by position.</p></div></div><section className="panel admin-profile-panel"><div className="panel-heading"><div><h2>Member directory</h2><p>{sortedMembers.length} registered members</p></div><div className="admin-profile-badge"><ShieldCheck size={15} /> Administrator</div></div><div className="admin-member-list">{sortedMembers.length ? sortedMembers.map((member) => <div className="admin-member-row" key={`${member.group}-${member.id}`}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position}</span></div><span className="admin-member-group">{member.group}</span><span className={`type-pill position-${(member.position || '').toLowerCase().replace('&', 'and')}`}>{member.position}</span></div>) : <div className="empty-ledger">No members have been registered yet.</div>}        </div></section><WeeklyDuesUsage usages={usages} onChange={onChangeUsage} /></div>;
+  const [eventOptions, setEventOptions] = useState(loadEventOptions);
+  const [sortBy, setSortBy] = useState('position');
+  const [newEvent, setNewEvent] = useState('');
+  const changeEventOptions = (nextOptions) => {
+    setEventOptions(nextOptions);
+    localStorage.setItem('tkvault-event-options', JSON.stringify(nextOptions));
+  };
+  const sortedMembers = [...members].sort((a, b) => sortBy === 'name'
+    ? a.name.localeCompare(b.name)
+    : (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99) || a.name.localeCompare(b.name));
+  const editEvent = (current) => {
+    const next = window.prompt('Edit event name', current);
+    if (next?.trim()) changeEventOptions(eventOptions.map((item) => item === current ? next.trim() : item));
+  };
+  const removeEvent = (name) => {
+    if (window.confirm(`Remove ${name} from event choices?`)) changeEventOptions(eventOptions.filter((item) => item !== name));
+  };
+  const addEvent = (event) => {
+    event.preventDefault();
+    const name = newEvent.trim();
+    if (name && !eventOptions.some((item) => item.toLowerCase() === name.toLowerCase())) changeEventOptions([...eventOptions, name]);
+    setNewEvent('');
+  };
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Admin Profile</h1><p>All added members across every group.</p></div></div><section className="panel admin-profile-panel"><div className="panel-heading"><div><h2>Member directory</h2><p>{sortedMembers.length} registered members</p></div><select className="goal-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="position">Sort by position</option><option value="name">Sort by name</option></select><div className="admin-profile-badge"><ShieldCheck size={15} /> Administrator</div></div><div className="admin-member-list">{sortedMembers.length ? sortedMembers.map((member) => <div className="admin-member-row" key={`${member.group}-${member.id}`}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position}</span></div><span className="admin-member-group">{member.group}</span><span className={`type-pill position-${(member.position || '').toLowerCase().replace('&', 'and')}`}>{member.position}</span></div>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section><section className="panel admin-events-panel"><div className="panel-heading"><div><span className="eyebrow">EVENT SETTINGS</span><h2>Event collection choices</h2><p>Manage event names shown when recording an event collection.</p></div></div><form className="usage-form" onSubmit={addEvent}><input value={newEvent} onChange={(event) => setNewEvent(event.target.value)} placeholder="Add an event name" /><button className="button button-primary" type="submit"><Plus size={16} /> Add event</button></form><div className="usage-list">{eventOptions.map((name) => <div className="usage-row" key={name}><strong>{name}</strong><span className="usage-actions"><button className="icon-button" onClick={() => editEvent(name)} aria-label={`Edit ${name}`}><Pencil size={15} /></button><button className="icon-button danger-action" onClick={() => removeEvent(name)} aria-label={`Remove ${name}`}><Trash2 size={15} /></button></span></div>)}</div></section></div>;
 }
 
 function AdministratorDashboard({ collections, groups }) {
-  const totals = collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Locale Collection') acc.locale += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, locale: 0, dues: 0 });
+  const totals = collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, dues: 0 });
   const groupTotals = groups.map((group) => ({ ...group, total: collections.filter((item) => item.group === group.name).reduce((sum, item) => sum + item.amount, 0) }));
   const categoryCards = [
     { label: 'Event Collection', amount: totals.event, icon: Sparkles, tone: 'yellow' },
-    { label: 'Locale Collection', amount: totals.locale, icon: BarChart3, tone: 'blue' },
     { label: 'Weekly Dues Collection', amount: totals.dues, icon: CalendarDays, tone: 'orange' },
   ];
   return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR DASHBOARD · {monthLabel.toUpperCase()}</span><h1>All groups overview</h1><p>Monitor collection performance across every TKVault group.</p></div></div><div className="admin-overall-card"><div><span className="eyebrow light">OVERALL COLLECTION</span><h2>{formatCurrency(totals.overall)}</h2><p>Combined collections from all groups</p></div><div className="admin-overall-icon"><CircleDollarSign size={28} /></div></div><div className="stats-grid admin-category-grid">{categoryCards.map(({ label, amount, icon, tone }) => <StatCard key={label} title={label} amount={amount} icon={icon} tone={tone} change="All groups" />)}</div><section className="panel admin-overview-panel"><div className="panel-heading"><div><h2>Collection Overview per Locale</h2><p>Overall amounts with each locale&apos;s color accent</p></div><span className="admin-total-label">{formatCurrency(totals.overall)} overall</span></div><div className="admin-group-grid">{groupTotals.map((group) => <article className={`admin-group-card location-${group.color}`} key={group.name}><div><span className="admin-group-dot" /><strong>{group.name}</strong></div><b>{formatCurrency(group.total)}</b><small>{collections.filter((item) => item.group === group.name).length} contributions</small></article>)}</div></section></div>;
@@ -251,7 +280,43 @@ function AdministratorMonitor({ collections }) {
     return searchable.includes(query.toLowerCase()) && (type === 'All types' || collection.type === type);
   });
   const total = filteredCollections.reduce((sum, collection) => sum + collection.amount, 0);
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Collections monitor</h1><p>Review contributions across every group in one place.</p></div></div><div className="collection-summary"><div><span>Contributions</span><strong>{filteredCollections.length}</strong></div><div><span>Total collected</span><strong>{formatCurrency(total)}</strong></div><div><span>Groups reporting</span><strong>{new Set(filteredCollections.map((item) => item.group)).size}</strong></div></div><section className="panel collections-panel"><div className="collection-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search contributor or group" /></div><select className="select-button" value={type} onChange={(event) => setType(event.target.value)}><option>All types</option><option>Event Collection</option><option>Locale Collection</option><option>Weekly Dues Collection</option></select></div><div className="admin-monitor-head"><span /><span>Contributor</span><span>Group</span><span>Type</span><span>Amount</span><span>Date</span></div><div className="admin-monitor-list">{filteredCollections.length ? filteredCollections.map((collection) => <div className="admin-monitor-row" key={`${collection.group}-${collection.id}`}><Avatar initials={collection.photo} src={imageSource(collection.photo)} color={collection.color} /><div className="collection-person"><strong>{collection.name}</strong><span>{collection.position}</span></div><strong className="monitor-group">{collection.group}</strong><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span><strong className="row-amount">{formatCurrency(collection.amount)}</strong><span className="row-date">{new Date(`${collection.date}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>) : <div className="empty-ledger">No contributions match your filters.</div>}</div></section></div>;
+  const saveChange = (collection, changes) => {
+    const key = `tkvault-collections-${collection.group}`;
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      saved = [];
+    }
+    localStorage.setItem(key, JSON.stringify(saved.map((item) => item.id === collection.id ? { ...item, ...changes } : item)));
+    window.dispatchEvent(new Event('tkvault-admin-data-change'));
+  };
+  const editRecord = (collection) => {
+    const name = window.prompt('Member name', collection.name);
+    if (name === null) return;
+    const position = window.prompt('Position', collection.position);
+    if (position === null) return;
+    const amount = window.prompt('Amount', String(collection.amount));
+    if (amount === null || !Number.isFinite(Number(amount)) || Number(amount) < 0) return;
+    const date = window.prompt('Date (YYYY-MM-DD)', collection.date);
+    if (date === null) return;
+    const eventName = collection.type === 'Event Collection' ? window.prompt('Event name', collection.eventName || '') : collection.eventName;
+    if (collection.type === 'Event Collection' && eventName === null) return;
+    saveChange(collection, { name: name.trim(), position, amount: Number(amount), date, eventName });
+  };
+  const deleteRecord = (collection) => {
+    if (!window.confirm(`Delete ${collection.name}'s collection from ${collection.group}?`)) return;
+    const key = `tkvault-collections-${collection.group}`;
+    let saved;
+    try {
+      saved = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      saved = [];
+    }
+    localStorage.setItem(key, JSON.stringify(saved.filter((item) => item.id !== collection.id)));
+    window.dispatchEvent(new Event('tkvault-admin-data-change'));
+  };
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Collections monitor</h1><p>Review contributions across every group in one place.</p></div></div><div className="collection-summary"><div><span>Contributions</span><strong>{filteredCollections.length}</strong></div><div><span>Total collected</span><strong>{formatCurrency(total)}</strong></div><div><span>Groups reporting</span><strong>{new Set(filteredCollections.map((item) => item.group)).size}</strong></div></div><section className="panel collections-panel"><div className="collection-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search member or group" /></div><select className="select-button" value={type} onChange={(event) => setType(event.target.value)}><option>All types</option><option>Event Collection</option><option>Weekly Dues Collection</option></select></div><div className="admin-monitor-list">{filteredCollections.length ? filteredCollections.map((collection) => <CollectionRow key={`${collection.group}-${collection.id}`} collection={collection} showGroup onEdit={() => editRecord(collection)} onDelete={() => deleteRecord(collection)} />) : <div className="empty-ledger">No contributions match your filters.</div>}</div></section></div>;
 }
 
 function SettingsPage({ account, group, profileImage, onProfileChange, isAdministrator }) {
@@ -295,23 +360,23 @@ function StatCard({ title, amount, icon: Icon, tone, change }) {
   return <article className={`stat-card ${tone}`}><div className="stat-top"><div className="stat-icon"><Icon size={20} /></div><span className="stat-change"><ArrowUpRight size={13} /> {change}</span></div><p>{title}</p><h3>{formatCurrency(amount)}</h3><span className="stat-caption">vs. previous month</span></article>;
 }
 
-function CollectionRow({ collection, onEdit, onDelete }) {
-  return <div className="collection-row"><Avatar initials={collection.photo} src={imageSource(collection.photo)} color={collection.color} /><div className="collection-person"><strong>{collection.name}</strong><span>{collection.eventName ? `${collection.eventName} · ${collection.position}` : collection.position}</span></div><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span><strong className="row-amount">{formatCurrency(collection.amount)}</strong><span className="row-date">{new Date(`${collection.date}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}</span>{onEdit ? <><button className="icon-button" onClick={() => onEdit(collection)} aria-label={`Edit ${collection.name}`}><Pencil size={15} /></button><button className="icon-button danger-action" onClick={() => onDelete(collection)} aria-label={`Delete ${collection.name}`}><Trash2 size={15} /></button></> : <button className="row-more">•••</button>}</div>;
+function CollectionRow({ collection, onEdit, onDelete, showGroup = false }) {
+  const [openMenu, setOpenMenu] = useState(false);
+  const date = new Date(`${collection.date}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+  return <article className="admin-monitor-card collection-monitor-card"><Avatar initials={collection.photo} src={imageSource(collection.photo)} color={collection.color} /><div className="admin-monitor-person"><strong>{collection.name}</strong><small>{collection.position}{showGroup && collection.group ? ` · ${collection.group}` : ''}</small><b>{formatCurrency(collection.amount)}</b><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span>{collection.eventName && <small className="monitor-event-name">{collection.eventName}</small>}</div>{onEdit && <div className="member-actions"><button className="row-more" onClick={() => setOpenMenu((isOpen) => !isOpen)} aria-label={`Actions for ${collection.name}`}>•••</button>{openMenu && <div className="member-menu"><button onClick={() => { setOpenMenu(false); onEdit(collection); }}>Edit</button><button className="danger-action" onClick={() => { setOpenMenu(false); onDelete(collection); }}>Delete</button></div>}</div>}<time>{date}</time></article>;
 }
 
-function Dashboard({ collections, onAdd, goal, onEditGoal, onViewAll }) {
+function Dashboard({ collections, onAdd, onAddEvent = () => onAdd(true), goal, onEditGoal, onViewAll }) {
   const [graphType, setGraphType] = useState('All collections');
   const graphCollections = graphType === 'All collections' ? collections : collections.filter((item) => item.type === graphType);
   const graphPath = graphType === 'Event Collection'
     ? 'M0 165 C80 150 105 105 170 130 S260 75 330 105 S430 60 500 88 S560 42 600 55'
-    : graphType === 'Locale Collection'
-      ? 'M0 145 C75 120 120 155 180 110 S275 125 335 72 S445 92 510 48 S570 65 600 28'
-      : graphType === 'Weekly Dues Collection'
+    : graphType === 'Weekly Dues Collection'
         ? 'M0 178 C70 170 120 145 180 155 S285 120 350 132 S445 98 510 105 S565 80 600 72'
         : 'M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18';
-  const totals = useMemo(() => collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Locale Collection') acc.locale += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, locale: 0, dues: 0 }), [collections]);
+  const totals = useMemo(() => collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, dues: 0 }), [collections]);
   const progress = Math.min(Math.round((totals.overall / goal) * 100), 100);
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add collection</button></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Locale collections" amount={totals.locale} icon={BarChart3} tone="blue" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel overview-panel"><div className="panel-heading"><div><span className="eyebrow">COLLECTION TRACKER</span><h2>Collection overview</h2><p>{graphType} · {graphCollections.length} records · {formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</p></div><select className="goal-select" value={graphType} onChange={(event) => setGraphType(event.target.value)}><option>All collections</option><option>Event Collection</option><option>Locale Collection</option><option>Weekly Dues Collection</option></select></div><div className="overview-total"><span>Collected so far</span><strong>{formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</strong></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d={`${graphPath} L600 200 L0 200Z`} fill="url(#area)" /><path d={graphPath} fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><span className="eyebrow">MONTHLY TARGET</span><h2>Monthly goal</h2><p>{formatCurrency(goal)} target</p></div>  <button className="more-button" onClick={onEditGoal}>•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button" onClick={onViewAll}>View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel overview-panel"><div className="panel-heading"><div><span className="eyebrow">COLLECTION TRACKER</span><h2>Collection overview</h2><p>{graphType} · {graphCollections.length} records · {formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</p></div><select className="goal-select" value={graphType} onChange={(event) => setGraphType(event.target.value)}>  <option>All collections</option><option>Event Collection</option><option>Weekly Dues Collection</option></select></div><div className="overview-total"><span>Collected so far</span><strong>{formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</strong></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d={`${graphPath} L600 200 L0 200Z`} fill="url(#area)" /><path d={graphPath} fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><span className="eyebrow">MONTHLY TARGET</span><h2>Monthly goal</h2><p>{formatCurrency(goal)} target</p></div>  <button className="more-button" onClick={onEditGoal}>•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button" onClick={onViewAll}>View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section></div>;
 }
 
 function WeeklyDuesUsage({ usages = [], onChange }) {
@@ -335,7 +400,7 @@ function WeeklyDuesUsage({ usages = [], onChange }) {
   return <section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">WEEKLY DUES USE</span><h2>Where dues were used</h2><p>Track fare, tokens, and other weekly dues expenses.</p></div></div><form className="usage-form" onSubmit={submit}><input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. TK fare or tokens" /><input type="number" min="0" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Amount" /><button className="button button-primary" type="submit"><Plus size={16} /> Add use</button></form><div className="usage-list">{usages.length ? usages.map((usage) => <div className="usage-row" key={usage.id}><span><strong>{usage.name}</strong><small>Weekly dues expense</small></span><strong>{formatCurrency(usage.amount)}</strong><button className="icon-button" onClick={() => edit(usage)} aria-label={`Edit ${usage.name}`}><Pencil size={15} /></button><button className="icon-button danger-action" onClick={() => remove(usage)} aria-label={`Delete ${usage.name}`}><Trash2 size={15} /></button></div>) : <div className="empty-ledger">No weekly dues use has been recorded.</div>}</div></section>;
 }
 
-function MentorsDashboard({ members, collections, usages, onAdd, onAddEvent = () => { localStorage.setItem('tkvault-event-mode', 'true'); onAdd(); }, onApplyWeeklyDues, onChangeUsage }) {
+function MentorsDashboard({ members, collections, usages, onAdd, onAddEvent = () => onAdd(true), onApplyWeeklyDues, onChangeUsage }) {
   const memberRows = members.map((member) => {
     const weeklyPaid = collections.filter((item) => item.memberId === member.id && item.type === 'Weekly Dues Collection').reduce((sum, item) => sum + item.amount, 0);
     return { ...member, status: member.status || 'Unemployed', weeklyRate: mentorsWeeklyRate[member.status || 'Unemployed'], weeklyPaid, unpaidBalance: Number(member.unpaidBalance) || 0 };
@@ -347,7 +412,7 @@ function MentorsDashboard({ members, collections, usages, onAdd, onAddEvent = ()
   return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">MENTORS DASHBOARD · {monthLabel.toUpperCase()}</span><h1>Overview</h1><p>Track cashflow, weekly rates, and unpaid balances for every member.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid mentors-summary-grid"><StatCard title="Weekly cashflow" amount={totalPaid} icon={CircleDollarSign} tone="navy" change="Paid dues" /><StatCard title="Unpaid balance" amount={totalUnpaid} icon={WalletCards} tone="orange" change="Outstanding" /><StatCard title="Weekly expected" amount={weeklyExpected} icon={CalendarDays} tone="yellow" change="By status" />  <StatCard title="Event collection" amount={eventCollections.reduce((sum, item) => sum + item.amount, 0)} icon={Sparkles} tone="blue" change="Tracked events" /></div><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">EVENT COLLECTIONS</span><h2>Event collection</h2><p>{formatCurrency(eventCollections.reduce((sum, item) => sum + item.amount, 0))} total</p></div><button className="button button-quiet" onClick={onAddEvent}>Add event</button></div><div className="collection-list">{eventCollections.slice(0, 3).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">MEMBER CASHFLOW</span><h2>Members and unpaid balance</h2><p>Weekly payment is based on each member&apos;s status.</p></div><button className="button button-quiet" onClick={onApplyWeeklyDues}>Apply this week&apos;s dues</button></div>    <div className="mentors-cashflow-list">{memberRows.length ? memberRows.map((member) => <article className="mentors-cashflow-row" key={member.id}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position} · {member.status}</span></div><div className="cashflow-rate"><small>Weekly rate</small><strong>{formatCurrency(member.weeklyRate)}</strong></div><div className="cashflow-paid"><small>Paid dues</small><strong>{formatCurrency(member.weeklyPaid)}</strong></div><div className={member.unpaidBalance ? 'cashflow-unpaid' : 'cashflow-settled'}><small>Unpaid balance</small><strong>{formatCurrency(member.unpaidBalance)}</strong></div></article>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section><WeeklyDuesUsage usages={usages} onChange={onChangeUsage} /></div>;
 }
 
-function CollectionsPage({ collections, onAdd, onEdit, onDelete }) {
+function CollectionsPage({ collections, onAdd, onAddEvent = () => onAdd(true), onEdit, onDelete }) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState('All types');
   const filteredCollections = collections.filter((collection) => {
@@ -356,20 +421,43 @@ function CollectionsPage({ collections, onAdd, onEdit, onDelete }) {
     return matchesQuery && matchesType;
   });
   const total = filteredCollections.reduce((sum, collection) => sum + collection.amount, 0);
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">TRANSACTION LEDGER</span><p>Review and manage every recorded contribution.</p></div><button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add collection</button></div><div className="collection-summary"><div><span>Showing</span><strong>{filteredCollections.length} records</strong></div><div><span>Filtered total</span><strong>{formatCurrency(total)}</strong></div><div><span>Last updated</span><strong>Today</strong></div></div><section className="panel collections-panel"><div className="collection-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by member or position" /></div><select className="select-button" value={type} onChange={(event) => setType(event.target.value)}><option>All types</option><option>Event Collection</option><option>Locale Collection</option><option>Weekly Dues Collection</option></select></div><div className="ledger-head"><span>Member</span><span>Type</span><span>Amount</span><span>Date</span><span /></div>  <div className="ledger-list">{filteredCollections.length ? filteredCollections.map((collection) => <CollectionRow key={collection.id} collection={collection} onEdit={onEdit} onDelete={onDelete} />) : <div className="empty-ledger">No collections match your filters.</div>}</div></section></div>;
+  return <div className="dashboard-content">
+    <div className="page-heading">
+      <div><span className="eyebrow">TRANSACTION LEDGER</span><p>Review and manage every recorded contribution.</p></div>
+      <div className="page-actions">
+        <button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button>
+        <button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button>
+      </div>
+    </div>
+    <div className="collection-summary">
+      <div><span>Showing</span><strong>{filteredCollections.length} records</strong></div>
+      <div><span>Filtered total</span><strong>{formatCurrency(total)}</strong></div>
+      <div><span>Last updated</span><strong>Today</strong></div>
+    </div>
+    <section className="panel collections-panel">
+      <div className="collection-toolbar">
+        <div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by member or position" /></div>
+        <select className="select-button" value={type} onChange={(event) => setType(event.target.value)}>
+          <option>All types</option><option>Event Collection</option><option>Weekly Dues Collection</option>
+        </select>
+      </div>
+      <div className="ledger-list">{filteredCollections.length
+        ? filteredCollections.map((collection) => <CollectionRow key={collection.id} collection={collection} onEdit={onEdit} onDelete={onDelete} />)
+        : <div className="empty-ledger">No collections match your filters.</div>}
+      </div>
+    </section>
+  </div>;
 }
 
-function AddCollection({ members, collection, onSubmit, onCancel, isMentors = false, eventMode = collection?.type === 'Event Collection' || localStorage.getItem('tkvault-event-mode') === 'true' }) {
+function AddCollection({ members, collection, onSubmit, onCancel, isMentors = false, eventOptions = loadEventOptions(), eventMode = collection?.type === 'Event Collection' }) {
   const firstMember = members[0];
-  const [form, setForm] = useState({ memberId: collection?.memberId || firstMember?.id || '', amount: collection?.amount || '', type: collection?.type || (eventMode ? 'Event Collection' : (isMentors ? 'Weekly Dues Collection' : 'Locale Collection')), eventName: collection?.eventName || '', contributorName: collection?.name || '', position: collection?.position || 'Provincial', date: collection?.date || today });
+  const [form, setForm] = useState({ memberId: collection?.memberId || firstMember?.id || '', amount: collection?.amount || '', type: collection?.type || (eventMode ? 'Event Collection' : 'Weekly Dues Collection'), eventName: collection?.eventName || eventOptions[0] || '', contributorName: collection?.name || '', position: collection?.position || 'Provincial', date: collection?.date || today });
   const selectedMember = members.find((member) => String(member.id) === String(form.memberId));
-  useEffect(() => () => { if (eventMode) localStorage.removeItem('tkvault-event-mode'); }, [eventMode]);
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const selectMember = (memberId) => update('memberId', memberId);
   const submit = (e) => {
     e.preventDefault();
     if ((eventMode && !form.contributorName.trim()) || (!eventMode && !selectedMember) || !form.amount) return;
-    localStorage.removeItem('tkvault-event-mode');
     onSubmit({
       ...form,
       id: collection?.id || Date.now(),
@@ -382,7 +470,7 @@ function AddCollection({ members, collection, onSubmit, onCancel, isMentors = fa
       color: eventMode ? 'gold' : selectedMember.color,
     });
   };
-  return <div className="modal-backdrop"><div className="modal"><div className="modal-heading"><div><span className="eyebrow">NEW ENTRY</span><h2>{eventMode ? 'Add event collection' : 'Add member collection'}</h2><p>{eventMode ? 'Record the member and event details.' : 'Select a registered member and record their contribution.'}</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><form onSubmit={submit} className="modal-form">{eventMode ? <><label>Event name<input autoFocus value={form.eventName} onChange={(e) => update('eventName', e.target.value)} placeholder="e.g. Anniversary celebration" /></label><label>Member name<input value={form.contributorName} onChange={(e) => update('contributorName', e.target.value)} placeholder="Enter member name" /></label><div className="form-row"><label>Position<select className="goal-select modal-select" value={form.position} onChange={(e) => update('position', e.target.value)}><option>Provincial</option><option>City</option><option>Locale</option><option>K&amp;T</option></select></label><label>Amount<input type="number" min="0" value={form.amount} onChange={(e) => update('amount', e.target.value)} placeholder="0.00" /></label></div></> : <><label>Member<select autoFocus value={form.memberId} onChange={(e) => selectMember(e.target.value)} disabled={!members.length}><option value="" disabled>{members.length ? 'Select a member' : 'Add member profile first'}</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><div className="form-row"><label>Position<input value={selectedMember?.position || ''} readOnly placeholder="Selected member position" /></label><label>Amount<input type="number" min="0" value={form.amount} onChange={(e) => update('amount', e.target.value)} placeholder="0.00" /></label></div></>}<div className="form-row"><label>Collection type<select value={form.type} onChange={(e) => update('type', e.target.value)}>{eventMode ? <option>Event Collection</option> : <>{!isMentors && <option>Locale Collection</option>}<option>Weekly Dues Collection</option></>}</select></label><label>Date<input type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label></div><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button className="button button-primary" type="submit" disabled={eventMode ? !form.contributorName.trim() : !selectedMember}><Check size={16} /> Save collection</button></div></form></div></div>;
+  return <div className="modal-backdrop"><div className="modal"><div className="modal-heading"><div><span className="eyebrow">NEW ENTRY</span><h2>{collection ? 'Edit collection' : eventMode ? 'Add event collection' : 'Add member collection'}</h2><p>{eventMode ? 'Choose an event and record the member details.' : 'Select a registered member and record weekly dues.'}</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><form onSubmit={submit} className="modal-form">{eventMode ? <><label>Event<select autoFocus value={form.eventName} onChange={(e) => update('eventName', e.target.value)}>{[...new Set([...eventOptions, form.eventName].filter(Boolean))].map((name) => <option key={name}>{name}</option>)}</select></label><label>Member name<input value={form.contributorName} onChange={(e) => update('contributorName', e.target.value)} placeholder="Enter member name" /></label><div className="form-row"><label>Position<select className="goal-select modal-select" value={form.position} onChange={(e) => update('position', e.target.value)}><option>Provincial</option><option>City</option><option>Locale</option><option>K&amp;T</option></select></label><label>Amount<input type="number" min="0" value={form.amount} onChange={(e) => update('amount', e.target.value)} placeholder="0.00" /></label></div></> : <><label>Member<select autoFocus value={form.memberId} onChange={(e) => selectMember(e.target.value)} disabled={!members.length}><option value="" disabled>{members.length ? 'Select a member' : 'Add member profile first'}</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label><div className="form-row"><label>Position<input value={selectedMember?.position || ''} readOnly placeholder="Selected member position" /></label><label>Amount<input type="number" min="0" value={form.amount} onChange={(e) => update('amount', e.target.value)} placeholder="0.00" /></label></div></>}<div className="form-row"><label>Collection type<input value={eventMode ? 'Event Collection' : 'Weekly Dues Collection'} readOnly /></label><label>Date<input type="date" value={form.date} onChange={(e) => update('date', e.target.value)} /></label></div><div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button className="button button-primary" type="submit" disabled={eventMode ? !form.contributorName.trim() : !selectedMember}><Check size={16} /> Save collection</button></div></form></div></div>;
 }
 
 function EditGoal({ goal, onSubmit, onCancel }) {
@@ -406,12 +494,12 @@ function InformationPage({ members, collections, onAdd, onEdit, onDelete, onAddW
   const memberRows = members.map((member) => {
     const memberCollections = collections.filter((item) => item.name === member.name);
     const totals = memberCollections.reduce((sum, item) => {
-      sum[item.type] += item.amount;
+      sum[item.type === 'Locale Collection' ? 'Event Collection' : item.type] += item.amount;
       return sum;
-    }, { 'Event Collection': 0, 'Locale Collection': 0, 'Weekly Dues Collection': 0 });
+    }, { 'Event Collection': 0, 'Weekly Dues Collection': 0 });
     return { ...member, unpaidBalance: Number(member.unpaidBalance) || 0, status: member.status || 'Unemployed', gender: member.gender || 'Not specified', totals };
   }).filter((member) => genderFilter === 'All genders' || member.gender === genderFilter).sort((a, b) => sortBy === 'name' ? a.name.localeCompare(b.name) : sortBy === 'date' ? a.id - b.id : (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99));
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">{isMentors ? 'MEMBER DIRECTORY' : 'MEMBER DIRECTORY'}</span><h1>{isMentors ? 'Members' : "Member's Profile"}</h1><p>{readOnly ? 'View all member information for this group.' : 'Manage members and view every contribution type.'}</p></div>{!readOnly && <button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add member profile</button>}</div><section className="panel members-panel"><div className="table-toolbar"><div className="search-field"><Search size={17} /><input placeholder="Search members" /></div><select className="goal-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="position">Sort by position</option><option value="name">Sort by name</option><option value="date">Sort by date added</option></select>{isMentors && <select className="goal-select" value={genderFilter} onChange={(event) => setGenderFilter(event.target.value)}><option>All genders</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Not specified</option></select>}</div><div className="member-grid">{memberRows.map((item) => <article className="member-card" key={item.id}><div className="member-card-header"><div className="member-cell"><Avatar initials={item.photo} src={imageSource(item.photo)} color={item.color} /><span><strong>{item.name}</strong>  <small>{item.position}</small>{isMentors && <><small className="member-status">{item.status}</small><small>{item.gender}</small></>}</span></div>{!readOnly && <div className="member-actions"><button className="row-more" onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)} aria-label={`Actions for ${item.name}`}>•••</button>{openMenu === item.id && <div className="member-menu"><button onClick={() => { setOpenMenu(null); onEdit(item); }}>Edit</button><button className="danger-action" onClick={() => { setOpenMenu(null); onDelete(item); }}>Delete</button></div>}</div>}</div>{!readOnly && <div className="contribution-grid"><div><span>Event collection</span><strong>{item.totals['Event Collection'] ? formatCurrency(item.totals['Event Collection']) : '—'}</strong></div><div><span>Locale collection</span><strong>{item.totals['Locale Collection'] ? formatCurrency(item.totals['Locale Collection']) : '—'}</strong></div><div><span>Weekly dues paid</span><strong>{item.totals['Weekly Dues Collection'] ? formatCurrency(item.totals['Weekly Dues Collection']) : '—'}</strong></div>{isMentors && <div className="unpaid-balance"><span>Unpaid balance</span><strong>{formatCurrency(item.unpaidBalance)}</strong></div>}</div>}</article>)}</div></section></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">{isMentors ? 'MEMBER DIRECTORY' : 'MEMBER DIRECTORY'}</span><h1>{isMentors ? 'Members' : "Member's Profile"}</h1><p>{readOnly ? 'View all member information for this group.' : 'Manage members and view every contribution type.'}</p></div>{!readOnly && <button className="button button-primary" onClick={onAdd}><Plus size={17} /> Add member profile</button>}</div><section className="panel members-panel"><div className="table-toolbar"><div className="search-field"><Search size={17} /><input placeholder="Search members" /></div><select className="goal-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="position">Sort by position</option><option value="name">Sort by name</option><option value="date">Sort by date added</option></select>{isMentors && <select className="goal-select" value={genderFilter} onChange={(event) => setGenderFilter(event.target.value)}><option>All genders</option><option>Female</option><option>Male</option><option>Non-binary</option><option>Not specified</option></select>}</div><div className="member-grid">{memberRows.map((item) => <article className="member-card" key={item.id}><div className="member-card-header"><div className="member-cell"><Avatar initials={item.photo} src={imageSource(item.photo)} color={item.color} /><span><strong>{item.name}</strong>  <small>{item.position}</small>{isMentors && <><small className="member-status">{item.status}</small><small>{item.gender}</small></>}</span></div>{!readOnly && <div className="member-actions"><button className="row-more" onClick={() => setOpenMenu(openMenu === item.id ? null : item.id)} aria-label={`Actions for ${item.name}`}>•••</button>{openMenu === item.id && <div className="member-menu"><button onClick={() => { setOpenMenu(null); onEdit(item); }}>Edit</button><button className="danger-action" onClick={() => { setOpenMenu(null); onDelete(item); }}>Delete</button></div>}</div>}</div>{!readOnly && <div className="contribution-grid"><div><span>Event collection</span><strong>{item.totals['Event Collection'] ? formatCurrency(item.totals['Event Collection']) : '—'}</strong></div>  <div><span>Event collection</span><strong>{item.totals['Event Collection'] ? formatCurrency(item.totals['Event Collection']) : '—'}</strong></div><div><span>Weekly dues paid</span><strong>{item.totals['Weekly Dues Collection'] ? formatCurrency(item.totals['Weekly Dues Collection']) : '—'}</strong></div>{isMentors && <div className="unpaid-balance"><span>Unpaid balance</span><strong>{formatCurrency(item.unpaidBalance)}</strong></div>}</div>}</article>)}</div></section></div>;
 }
 
 function AddMember({ member, onSubmit, onCancel, isMentors = false }) {
@@ -505,6 +593,12 @@ function LiquidationPage({ report, onReportChange, receipts, onReceiptChange, sh
   return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div></div><div className="report-layout"><section className="panel report-panel"><div className="report-icon"><FileSpreadsheet size={28} /></div><h2>Keep your reports in one place</h2><p className="muted">Upload an Excel or executable report file to make it available to your team.</p><label className="dropzone"><Upload size={22} /><strong>{report ? report.name : 'Choose a file or drag it here'}</strong><span>Supported files: .xlsx, .exe · Max 25 MB</span><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label>{report && <><div className="uploaded-file"><FileSpreadsheet size={19} /><span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Preview available</small></span><button className="icon-button" onClick={() => download(report)} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button><label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label><button className="icon-button danger-action" onClick={removeReport} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button></div><div className="file-preview">{preview(report)}</div></>}{isAdministrator && <form className="sheet-link-form" onSubmit={saveSheetLink}><label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label><button className="button button-primary" type="submit">Save link</button></form>}{sheetLink && <a className="sheet-link-card" href={sheetLink} target="_blank" rel="noreferrer"><ExternalLink size={18} /><span><strong>Open shared liquidation sheet</strong><small>Use the Google Sheet provided by the administrator.</small></span><ArrowUpRight size={16} /></a>}</section><section className="panel receipts-panel"><div className="panel-heading"><div><h2>Receipts</h2><p>Upload, edit, replace or download supporting receipts.</p></div><div className="receipt-count">{receipts.length}</div></div><label className="receipt-upload"><Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel</small></span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={addReceipt} /></label><div className="receipt-list">{receipts.length ? receipts.map((receipt, index) => <div className="receipt-item" key={`${receipt.name}-${index}`}><div className="receipt-file-icon"><FileSpreadsheet size={17} /></div><span><strong>{receipt.name}</strong><small>{(receipt.size / 1024).toFixed(1)} KB · Preview ready</small></span><button className="icon-button" onClick={() => download(receipt)} aria-label={`Download ${receipt.name}`}><ArrowDownToLine size={16} /></button><button className="icon-button" onClick={() => editReceiptName(index)} aria-label={`Rename ${receipt.name}`}><Pencil size={16} /></button><label className="icon-button" aria-label={`Replace ${receipt.name}`}><Upload size={16} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={(event) => replaceReceipt(event, index)} /></label><button className="icon-button danger-action" onClick={() => removeReceipt(index)} aria-label={`Delete ${receipt.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-receipts">No receipts uploaded yet.</div>}</div>{receipts[0] && <div className="file-preview">{preview(receipts[0])}</div>}</section></div></div>;
 }
 
+function normalizeCollection(collection) {
+  return collection.type === 'Locale Collection'
+    ? { ...collection, type: 'Event Collection', eventName: collection.eventName || 'Legacy collection' }
+    : collection;
+}
+
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [auth, setAuth] = useState(false);
@@ -520,6 +614,7 @@ function App() {
   const [receipts, setReceipts] = useState([]);
   const [duesUsage, setDuesUsage] = useState([]);
   const [sheetLink, setSheetLink] = useState('');
+  const [adminDataVersion, setAdminDataVersion] = useState(0);
   const [goal, setGoal] = useState(100000);
   const [profileImage, setProfileImage] = useState('');
   const [adminGroupView, setAdminGroupView] = useState(false);
@@ -527,6 +622,11 @@ function App() {
   useEffect(() => {
     const timer = window.setTimeout(() => setShowSplash(false), 5000);
     return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    const refreshAdminData = () => setAdminDataVersion((version) => version + 1);
+    window.addEventListener('tkvault-admin-data-change', refreshAdminData);
+    return () => window.removeEventListener('tkvault-admin-data-change', refreshAdminData);
   }, []);
   const readGroupData = (key, selectedGroup, fallback) => {
     try {
@@ -584,7 +684,7 @@ function App() {
     const storedMembers = readGroupData('members', selectedGroup, []);
     const cleanCollections = storedCollections.filter((item) => !demoNames.has(item.name));
     const cleanMembers = storedMembers.filter((item) => !demoNames.has(item.name));
-    setCollections(cleanCollections);
+    setCollections(cleanCollections.map(normalizeCollection));
     setMembers(cleanMembers);
     setReport(readGroupData('report', selectedGroup, null));
     setReceipts(readGroupData('receipts', selectedGroup, []));
@@ -592,8 +692,8 @@ function App() {
     setDuesUsage(readGroupData('dues-usage', selectedGroup, []));
     setGoal(readGroupData('goal', selectedGroup, 100000));
   };
-  const allGroupCollections = account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('collections', item.name, []).map((collection) => ({ ...collection, group: item.name }))) : [];
-  const allGroupMembers = account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('members', item.name, []).map((member) => ({ ...member, group: item.name }))) : [];
+  const allGroupCollections = useMemo(() => account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('collections', item.name, []).map(normalizeCollection).map((collection) => ({ ...collection, group: item.name }))) : [], [account?.role, adminDataVersion]);
+  const allGroupMembers = useMemo(() => account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('members', item.name, []).map((member) => ({ ...member, group: item.name }))) : [], [account?.role, adminDataVersion]);
   const handleLogin = (loggedInAccount) => {
     setAccount(loggedInAccount);
     setAuth(true);
@@ -610,7 +710,45 @@ function App() {
   const isAdministrator = account.role === 'administrator' && !adminGroupView;
   const groupTheme = isAdministrator ? 'royal-blue' : groups.find((item) => item.name === group)?.color || 'royal-blue';
   const updateProfile = (image) => { setProfileImage(image); localStorage.setItem(`tkvault-profile-${account.username}`, image); };
-  return <div className={`app-shell group-theme-${groupTheme}`}><Sidebar group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} isAdministrator={isAdministrator} isAdminGroupView={adminGroupView} onSwitchGroup={() => { setGroup(''); setAdminGroupView(false); setProfileReadOnly(false); setActive('Dashboard'); setMenuOpen(false); }} onBackAdmin={() => { setAdminGroupView(false); setGroup(groups[0].name); setProfileReadOnly(false); setActive('Dashboard'); setMenuOpen(false); }} active={active} setActive={(item) => { setProfileReadOnly(false); setActive(item); setMenuOpen(false); }} onSettings={() => { setActive('Settings'); setMenuOpen(false); }} onLogout={logout} /><div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} />  <main className="main-area"><Header group={isAdministrator ? 'Administrator' : group} profileImage={profileImage} onProfile={() => { setProfileReadOnly(!isAdministrator); setActive(isAdministrator ? 'Admin Profile' : "Member's Profile"); }} onMenu={() => setMenuOpen(true)} />{active === 'Dashboard' && (isAdministrator ? <AdministratorDashboard collections={allGroupCollections} groups={groups} /> : group === 'Mentors' ? <MentorsDashboard members={members} collections={collections} onAdd={() => { setActive('Collections'); setModal('collection'); }}   usages={duesUsage} onChangeUsage={setDuesUsage} onApplyWeeklyDues={applyWeeklyDues} /> : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={() => { setActive('Collections'); setModal('collection'); }} />)}{active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />  }{active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} isMentors={group === 'Mentors'} readOnly={profileReadOnly} onAdd={() => setModal('member')}   onAddWeeklyDue={applyWeeklyDues} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}{active === 'Collections' &&   <CollectionsPage collections={collections} onAdd={() => setModal('collection')} onEdit={editCollection} onDelete={deleteCollection} />}  {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} isAdministrator={isAdministrator || adminGroupView} />}{active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}{active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}</main>  {modal === 'member' && <AddMember isMentors={group === 'Mentors'} onSubmit={addMember} onCancel={() => setModal(false)} />}{modal?.type === 'edit-member' && <AddMember isMentors={group === 'Mentors'} member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)}   />}   {modal === 'collection' &&   <AddCollection members={members} isMentors={group === 'Mentors'} onSubmit={addCollection} onCancel={() => setModal(false)} />}{modal?.type === 'edit-collection' && <AddCollection members={members} isMentors={group === 'Mentors'} collection={modal.collection} onSubmit={(item) => { setCollections((current) => current.map((collection) => collection.id === item.id ? item : collection)); setModal(false); }} onCancel={() => setModal(false)} />}{modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}</div>;
+  return <div className={`app-shell group-theme-${groupTheme}`}>
+    <Sidebar
+      group={isAdministrator ? 'Administrator' : group}
+      profileImage={profileImage}
+      isAdministrator={isAdministrator}
+      isAdminGroupView={adminGroupView}
+      onSwitchGroup={() => { setGroup(''); setAdminGroupView(false); setProfileReadOnly(false); setActive('Dashboard'); setMenuOpen(false); }}
+      onBackAdmin={() => { setAdminGroupView(false); setGroup(groups[0].name); setProfileReadOnly(false); setActive('Dashboard'); setMenuOpen(false); setAdminDataVersion((version) => version + 1); }}
+      active={active}
+      setActive={(item) => { setProfileReadOnly(false); setActive(item); setMenuOpen(false); }}
+      onSettings={() => { setActive('Settings'); setMenuOpen(false); }}
+      onLogout={logout}
+    />
+    <div className={`mobile-overlay ${menuOpen ? 'show' : ''}`} onClick={() => setMenuOpen(false)} />
+    <main className="main-area">
+      <Header
+        group={isAdministrator ? 'Administrator' : group}
+        profileImage={profileImage}
+        onProfile={() => { setProfileReadOnly(!isAdministrator); setActive(isAdministrator ? 'Admin Profile' : "Member's Profile"); }}
+        onMenu={() => setMenuOpen(true)}
+      />
+      {active === 'Dashboard' && (isAdministrator
+        ? <AdministratorDashboard collections={allGroupCollections} groups={groups} />
+        : group === 'Mentors'
+          ? <MentorsDashboard members={members} collections={collections} onAdd={(eventMode = false) => { setActive('Collections'); setModal({ type: 'collection', eventMode: eventMode === true }); }} usages={duesUsage} onChangeUsage={setDuesUsage} onApplyWeeklyDues={applyWeeklyDues} />
+          : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={(eventMode = false) => { setActive('Collections'); setModal({ type: 'collection', eventMode: eventMode === true }); }} />)}
+      {active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />}
+      {active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} isMentors={group === 'Mentors'} readOnly={profileReadOnly} onAdd={() => setModal('member')} onAddWeeklyDue={applyWeeklyDues} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}
+      {active === 'Collections' && <CollectionsPage collections={collections} onAdd={(eventMode = false) => setModal({ type: 'collection', eventMode: eventMode === true })} onEdit={editCollection} onDelete={deleteCollection} />}
+      {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} isAdministrator={isAdministrator || adminGroupView} />}
+      {active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}
+      {active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}
+    </main>
+    {modal === 'member' && <AddMember isMentors={group === 'Mentors'} onSubmit={addMember} onCancel={() => setModal(false)} />}
+    {modal?.type === 'edit-member' && <AddMember isMentors={group === 'Mentors'} member={modal.member} onSubmit={editMember} onCancel={() => setModal(false)} />}
+    {modal?.type === 'collection' && <AddCollection members={members} isMentors={group === 'Mentors'} eventMode={modal.eventMode} onSubmit={addCollection} onCancel={() => setModal(false)} />}
+    {modal?.type === 'edit-collection' && <AddCollection members={members} isMentors={group === 'Mentors'} collection={modal.collection} onSubmit={(item) => { setCollections((current) => current.map((collection) => collection.id === item.id ? item : collection)); setModal(false); }} onCancel={() => setModal(false)} />}
+    {modal === 'goal' && <EditGoal goal={goal} onSubmit={(value) => { setGoal(value); setModal(false); }} onCancel={() => setModal(false)} />}
+  </div>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);

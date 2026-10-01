@@ -196,3 +196,32 @@ button { border: 0; cursor: pointer; }
   .usage-form { flex-direction: column; }
   .sheet-link-form { align-items: stretch; flex-direction: column; }
 }
+.admin-monitor-list { display: grid; gap: 10px; }
+.admin-monitor-card { align-items: start; background: #fafbfe; border: 1px solid var(--line); border-left: 3px solid var(--group-accent); border-radius: 12px; display: grid; gap: 8px 12px; grid-template-columns: 38px minmax(0, 1fr) auto; min-width: 0; padding: 14px; }
+.admin-monitor-person { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.admin-monitor-person > strong { color: var(--navy); font-size: 13px; }
+.admin-monitor-person > small { color: #8994aa; font-size: 11px; overflow-wrap: anywhere; }
+.admin-monitor-person > b { color: var(--navy); font-size: 13px; }
+.admin-monitor-person .type-pill { align-self: flex-start; }
+.admin-monitor-card > time { color: #8994aa; font-size: 10px; grid-column: 2 / span 2; }
+.admin-monitor-card > .avatar { grid-row: span 2; }
+.admin-monitor-card > .member-actions { position: relative; }
+.admin-profile-panel .panel-heading { flex-wrap: wrap; }
+.admin-profile-panel .goal-select { width: auto; }
+.admin-events-panel { margin-top: 16px; }
+.admin-events-panel .usage-row { min-height: 46px; }
+.admin-events-panel .usage-actions { display: flex; }
+.monitor-event-name { font-weight: 600; }
+.collections-panel .ledger-list { display: grid; gap: 10px; padding: 12px; }
+.collections-panel .collection-monitor-card { width: 100%; }
+@media (max-width: 800px) {
+  .admin-monitor-card { gap: 8px; grid-template-columns: 34px minmax(0, 1fr) auto; padding: 12px; }
+  .admin-profile-panel .panel-heading { align-items: flex-start; }
+  .admin-profile-panel .goal-select { width: 100%; }
+  .collection-row { align-items: start; display: grid; gap: 8px 10px; grid-template-columns: 35px minmax(0, 1fr) auto; min-width: 0; padding: 13px; }
+  .collection-row .collection-person { grid-column: 2; min-width: 0; }
+  .collection-row .type-pill { grid-column: 2; justify-self: start; }
+  .collection-row .row-amount { grid-column: 2; }
+  .collection-row .row-date { grid-column: 2; }
+  .collection-row .avatar { grid-row: span 3; }
+}
