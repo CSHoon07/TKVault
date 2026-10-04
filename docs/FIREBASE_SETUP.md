@@ -15,7 +15,9 @@ Alternatively, after installing and authenticating the Firebase CLI, publish the
 
 ## Free hosting
 
-The existing GitHub Pages workflow builds and deploys the web app when changes reach `main`. GitHub Pages is free for a public repository, and Firestore/Auth can remain on Firebase's no-cost Spark plan while within its quotas. The Firebase project can require a billing account if free quotas are exceeded; monitor usage in Firebase Console.
+For the first deployment, open **Repository Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. The workflow cannot enable this repository setting itself with GitHub's restricted default workflow token. Afterward, the GitHub Pages workflow builds and deploys the web app when changes reach `main`.
+
+GitHub Pages is free for a public repository, and Firestore/Auth can remain on Firebase's no-cost Spark plan while within its quotas. The Firebase project can require a billing account if free quotas are exceeded; monitor usage in Firebase Console.
 
 ## Shared and device-local data
 
