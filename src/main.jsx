@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   ArrowDownToLine,
@@ -31,6 +31,8 @@ import {
   Link,
   X,
 } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth as firebaseAuth, changeAccountPassword, claimWeeklyDues, createGroupAccount, getAccountForUser, saveEventOptions, setAccountStatus, setGroupMetadata, signInAccount, signOutAccount, watchEventOptions, watchGroupMetadata, watchGroupRecords, watchPendingAccounts, syncGroupRecords } from './firebase';
 import './styles.css';
 
 const imageAssets = import.meta.glob('./image/*.png', { eager: true, query: '?url', import: 'default' });
@@ -39,13 +41,6 @@ const groupImage = (group) => {
   const fileName = group === 'JP Laurel' ? 'J.P. Laurel' : group;
   return imageAssets[`./image/${fileName}.png`] || logoImage;
 };
-const accountPassword = (username, fallback) => {
-  try {
-    return JSON.parse(localStorage.getItem(`tkvault-password-${username}`)) || fallback;
-  } catch {
-    return fallback;
-  }
-};
 const readImage = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(reader.result);
@@ -53,6 +48,7 @@ const readImage = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 const imageSource = (value) => typeof value === 'string' && (value.startsWith('data:image/') || value.startsWith('https://') || value.startsWith('blob:')) ? value : undefined;
+const createRecordId = () => Date.now() * 1000 + Math.floor(Math.random() * 1000);
 function ImageCropper({ source, onCancel, onSave }) {
   const [zoom, setZoom] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
@@ -66,7 +62,7 @@ function ImageCropper({ source, onCancel, onSave }) {
   const saveCrop = () => {
     const image = new Image();
     image.onload = () => {
-      const size = 640;
+      const size = 320;
       const scale = Math.max(size / image.width, size / image.height) * zoom;
       const maxX = Math.max(0, image.width * scale - size) / 2;
       const maxY = Math.max(0, image.height * scale - size) / 2;
@@ -75,7 +71,7 @@ function ImageCropper({ source, onCancel, onSave }) {
       canvas.height = size;
       const context = canvas.getContext('2d');
       context.drawImage(image, (size - image.width * scale) / 2 + (offsetX / 100) * maxX, (size - image.height * scale) / 2 + (offsetY / 100) * maxY, image.width * scale, image.height * scale);
-      onSave(canvas.toDataURL('image/jpeg', 0.88));
+      onSave(canvas.toDataURL('image/jpeg', 0.82));
     };
     image.src = source;
   };
@@ -100,17 +96,6 @@ const groups = [
   { name: 'Sandawa', color: 'pink' },
   { name: 'Toril', color: 'magenta' },
   { name: 'Mentors', color: 'gold' },
-];
-
-const loginAccounts = [
-  { username: 'admin@tkvault.com', password: 'TKVaultAdmin2026!', role: 'administrator', name: 'Administrator' },
-  ...groups.filter((group) => group.name !== 'Mentors').map((group) => ({
-    username: `${group.name.toLowerCase().replace(' ', '')}@tkvault.com`,
-    password: `${group.name.toLowerCase().replace(' ', '')}123`,
-    role: 'group',
-    group: group.name,
-    name: `${group.name} Treasurer`,
-  })),
 ];
 
 const formatCurrency = (amount) =>
@@ -138,29 +123,28 @@ function SplashPage() {
 }
 
 function Login({ onLogin, onSignup }) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     if (isLoading) return;
     setError('');
-    if (!username.trim() || !password) {
-      setError('Enter your username and password.');
-      return;
-    }
-    const account = loginAccounts.find((item) => item.username.toLowerCase() === username.trim().toLowerCase() && accountPassword(item.username, item.password) === password);
-    if (!account) {
-      setError('Incorrect username or password.');
+    if (!email.trim() || !password) {
+      setError('Enter your email and password.');
       return;
     }
     setIsLoading(true);
-    window.setTimeout(() => {
-      onLogin({ ...account, initials: account.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() });
-    }, 700);
+    try {
+      await onLogin(await signInAccount(email, password));
+    } catch (loginError) {
+      setError(authErrorMessage(loginError));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -183,7 +167,7 @@ function Login({ onLogin, onSignup }) {
           <h2>Sign in to your vault</h2>
           <p className="muted">Manage your collections with clarity.</p>
           <form onSubmit={submit}>
-            <label>Username or email<input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="you@example.com" /></label>
+            <label>Email<input autoComplete="username" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
             <label>Password<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" /><button className="password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>
             {error && <div className="form-error">{error}</div>}
             <button className="button button-primary button-full" type="submit" disabled={isLoading}>{isLoading ? <><LoaderCircle className="loading-spinner" size={17} /> Signing in...</> : <>Login <ArrowUpRight size={17} /></>}</button>
@@ -195,14 +179,46 @@ function Login({ onLogin, onSignup }) {
   );
 }
 
-function Signup({ onBack }) {
+function Signup({ onBack, onCreate }) {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [group, setGroup] = useState(groups[0].name);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setIsLoading(true);
+    try {
+      await onCreate(await createGroupAccount({ name, email, password, group }));
+    } catch (signupError) {
+      setError(authErrorMessage(signupError));
+    } finally {
+      setIsLoading(false);
+    }
+  };
   return (
     <main className="auth-page">
       <section className="auth-visual signup-visual"><Logo dark /><div className="visual-copy"><span className="eyebrow light">A BETTER WAY TO KEEP UP</span><h1>Make every peso<br /><em>count.</em></h1><p>Start your group&apos;s secure collection space in minutes.</p></div><div className="visual-orb orb-one" /><div className="visual-orb orb-two" /></section>
-      <section className="auth-form-wrap"><div className="auth-form"><span className="mobile-logo"><Logo /></span><span className="eyebrow">GET STARTED</span><h2>Create your account</h2><p className="muted">Set up your profile to start using TKVault.</p><div className="upload-avatar"><div className="upload-placeholder"><UserRound size={24} /></div><button className="text-button"><Upload size={14} /> Upload photo</button></div><label>Full name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter full name" /></label><button className="button button-primary button-full" onClick={onBack}>Enter TKVault <ArrowUpRight size={17} /></button><p className="auth-footer">Already have an account? <button className="text-button" onClick={onBack}>Sign in</button></p></div></section>
+      <section className="auth-form-wrap"><div className="auth-form"><span className="mobile-logo"><Logo /></span><span className="eyebrow">GET STARTED</span><h2>Create your account</h2><p className="muted">Join a group workspace to share collections with your team.</p><form onSubmit={submit}><label>Full name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter full name" required /></label><label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" required /></label><label>Password<input type="password" autoComplete="new-password" minLength="6" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 6 characters" required /></label><label>Group<select value={group} onChange={(event) => setGroup(event.target.value)}>{groups.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>{error && <div className="form-error">{error}</div>}<button className="button button-primary button-full" type="submit" disabled={isLoading}>{isLoading ? 'Creating account…' : <>Create account <ArrowUpRight size={17} /></>}</button></form><p className="auth-footer">Already have an account? <button className="text-button" onClick={onBack}>Sign in</button></p></div></section>
     </main>
   );
+}
+
+function authErrorMessage(error) {
+  const messages = {
+    'auth/invalid-credential': 'Email or password is incorrect.',
+    'auth/user-not-found': 'No account exists for that email.',
+    'auth/wrong-password': 'Email or password is incorrect.',
+    'auth/email-already-in-use': 'An account already exists for this email.',
+    'auth/weak-password': 'Use a password with at least 6 characters.',
+    'auth/invalid-email': 'Enter a valid email address.',
+    'auth/operation-not-allowed': 'Email and password sign-in is not enabled in Firebase yet.',
+    'auth/network-request-failed': 'Could not reach Firebase. Check your internet connection.',
+    'CONFIGURATION_NOT_FOUND': 'TKVault sign-in is not enabled in Firebase yet. The administrator must finish the Firebase setup before accounts can sign in.',
+  };
+  return messages[error?.code] || error?.message || 'Authentication failed. Please try again.';
 }
 
 function GroupPage({ onSelect, onBack, account }) {
@@ -242,7 +258,16 @@ function AdministratorProfile({ members }) {
   const changeEventOptions = (nextOptions) => {
     setEventOptions(nextOptions);
     localStorage.setItem('tkvault-event-options', JSON.stringify(nextOptions));
+    saveEventOptions(nextOptions).catch((error) => {
+      console.error('Unable to sync event choices to Firebase', error);
+      window.alert('Event choices could not sync to Firebase. Check the Firestore rules and try again.');
+    });
   };
+  useEffect(() => {
+    const refreshEventOptions = () => setEventOptions(loadEventOptions());
+    window.addEventListener('tkvault-event-options-change', refreshEventOptions);
+    return () => window.removeEventListener('tkvault-event-options-change', refreshEventOptions);
+  }, []);
   const sortedMembers = [...members].sort((a, b) => sortBy === 'name'
     ? a.name.localeCompare(b.name)
     : (positionOrder[a.position] ?? 99) - (positionOrder[b.position] ?? 99) || a.name.localeCompare(b.name));
@@ -260,6 +285,32 @@ function AdministratorProfile({ members }) {
     setNewEvent('');
   };
   return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Admin Profile</h1><p>All added members across every group.</p></div></div><section className="panel admin-profile-panel"><div className="panel-heading"><div><h2>Member directory</h2><p>{sortedMembers.length} registered members</p></div><select className="goal-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="position">Sort by position</option><option value="name">Sort by name</option></select><div className="admin-profile-badge"><ShieldCheck size={15} /> Administrator</div></div><div className="admin-member-list">{sortedMembers.length ? sortedMembers.map((member) => <div className="admin-member-row" key={`${member.group}-${member.id}`}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position}</span></div><span className="admin-member-group">{member.group}</span><span className={`type-pill position-${(member.position || '').toLowerCase().replace('&', 'and')}`}>{member.position}</span></div>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section><section className="panel admin-events-panel"><div className="panel-heading"><div><span className="eyebrow">EVENT SETTINGS</span><h2>Event collection choices</h2><p>Manage event names shown when recording an event collection.</p></div></div><form className="usage-form" onSubmit={addEvent}><input value={newEvent} onChange={(event) => setNewEvent(event.target.value)} placeholder="Add an event name" /><button className="button button-primary" type="submit"><Plus size={16} /> Add event</button></form><div className="usage-list">{eventOptions.map((name) => <div className="usage-row" key={name}><strong>{name}</strong><span className="usage-actions"><button className="icon-button" onClick={() => editEvent(name)} aria-label={`Edit ${name}`}><Pencil size={15} /></button><button className="icon-button danger-action" onClick={() => removeEvent(name)} aria-label={`Remove ${name}`}><Trash2 size={15} /></button></span></div>)}</div></section></div>;
+}
+
+function PendingAccounts() {
+  const [accounts, setAccounts] = useState([]);
+  const [loadError, setLoadError] = useState('');
+  useEffect(() => watchPendingAccounts(setAccounts, (error) => {
+    console.error('Unable to load account approvals', error);
+    setLoadError('Pending accounts could not be loaded from Firebase.');
+  }), []);
+  const changeStatus = async (account, status) => {
+    try {
+      await setAccountStatus(account.uid, status);
+    } catch (error) {
+      console.error(`Unable to update ${account.email} account status`, error);
+      window.alert('The account status could not be updated. Check Firebase permissions and try again.');
+    }
+  };
+  return <section className="panel pending-accounts-panel">
+    <div className="panel-heading"><div><span className="eyebrow">ACCESS CONTROL</span><h2>Group account requests</h2><p>New signups need approval before accessing group data.</p></div><span className="receipt-count">{accounts.length}</span></div>
+    {loadError && <p className="form-error">{loadError}</p>}
+    <div className="pending-account-list">{accounts.length ? accounts.map((account) => <div className="pending-account-row" key={account.uid}>
+      <span><strong>{account.name}</strong><small>{account.email} · {account.group}</small></span>
+      <button className="button button-quiet" onClick={() => changeStatus(account, 'rejected')}>Reject</button>
+      <button className="button button-primary" onClick={() => changeStatus(account, 'active')}>Approve</button>
+    </div>) : <div className="empty-ledger">No pending account requests.</div>}</div>
+  </section>;
 }
 
 function AdministratorDashboard({ collections, groups }) {
@@ -283,12 +334,21 @@ function AdministratorMonitor({ collections }) {
   const saveChange = (collection, changes) => {
     const key = `tkvault-collections-${collection.group}`;
     let saved;
+    let members;
     try {
       saved = JSON.parse(localStorage.getItem(key) || '[]');
-    } catch {
-      saved = [];
+      members = JSON.parse(localStorage.getItem(`tkvault-members-${collection.group}`) || '[]');
+      if (!Array.isArray(saved) || !Array.isArray(members)) throw new TypeError('Saved group data is not a list.');
+    } catch (error) {
+      console.error(`Unable to read collections for ${collection.group}`, error);
+      window.alert('This group’s saved data could not be read, so the collection was not changed.');
+      return;
     }
-    localStorage.setItem(key, JSON.stringify(saved.map((item) => item.id === collection.id ? { ...item, ...changes } : item)));
+    const error = saveLocalData(key, compactCollectionPhotos(saved.map((item) => item.id === collection.id ? { ...item, ...changes } : item), members));
+    if (error) {
+      window.alert(error);
+      return;
+    }
     window.dispatchEvent(new Event('tkvault-admin-data-change'));
   };
   const editRecord = (collection) => {
@@ -308,65 +368,63 @@ function AdministratorMonitor({ collections }) {
     if (!window.confirm(`Delete ${collection.name}'s collection from ${collection.group}?`)) return;
     const key = `tkvault-collections-${collection.group}`;
     let saved;
+    let members;
     try {
       saved = JSON.parse(localStorage.getItem(key) || '[]');
-    } catch {
-      saved = [];
+      members = JSON.parse(localStorage.getItem(`tkvault-members-${collection.group}`) || '[]');
+      if (!Array.isArray(saved) || !Array.isArray(members)) throw new TypeError('Saved group data is not a list.');
+    } catch (error) {
+      console.error(`Unable to read collections for ${collection.group}`, error);
+      window.alert('This group’s saved data could not be read, so the collection was not deleted.');
+      return;
     }
-    localStorage.setItem(key, JSON.stringify(saved.filter((item) => item.id !== collection.id)));
+    const error = saveLocalData(key, compactCollectionPhotos(saved.filter((item) => item.id !== collection.id), members));
+    if (error) {
+      window.alert(error);
+      return;
+    }
     window.dispatchEvent(new Event('tkvault-admin-data-change'));
   };
   return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ADMINISTRATOR ACCESS</span><h1>Collections monitor</h1><p>Review contributions across every group in one place.</p></div></div><div className="collection-summary"><div><span>Contributions</span><strong>{filteredCollections.length}</strong></div><div><span>Total collected</span><strong>{formatCurrency(total)}</strong></div><div><span>Groups reporting</span><strong>{new Set(filteredCollections.map((item) => item.group)).size}</strong></div></div><section className="panel collections-panel"><div className="collection-toolbar"><div className="search-field"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search member or group" /></div><select className="select-button" value={type} onChange={(event) => setType(event.target.value)}><option>All types</option><option>Event Collection</option><option>Weekly Dues Collection</option></select></div><div className="admin-monitor-list">{filteredCollections.length ? filteredCollections.map((collection) => <CollectionRow key={`${collection.group}-${collection.id}`} collection={collection} showGroup onEdit={() => editRecord(collection)} onDelete={() => deleteRecord(collection)} />) : <div className="empty-ledger">No contributions match your filters.</div>}</div></section></div>;
 }
 
-function SettingsPage({ account, group, profileImage, onProfileChange, isAdministrator }) {
+function SettingsPage({ account, group, profileImage, onProfileChange }) {
   const [password, setPassword] = useState('');
   const [notice, setNotice] = useState('');
-  const [requests, setRequests] = useState([]);
   const [cropSource, setCropSource] = useState('');
-  const refreshRequests = () => {
-    try { setRequests(JSON.parse(localStorage.getItem('tkvault-password-requests')) || []); } catch { setRequests([]); }
-  };
-  useEffect(() => { if (isAdministrator) refreshRequests(); }, [isAdministrator]);
   const uploadProfile = async (event) => {
     const file = event.target.files?.[0];
     if (file) setCropSource(await readImage(file));
     event.target.value = '';
   };
-  const requestPasswordChange = () => {
+  const requestPasswordChange = async () => {
     if (password.length < 6) { setNotice('Use a password with at least 6 characters.'); return; }
-    if (isAdministrator) {
-      localStorage.setItem(`tkvault-password-${account.username}`, JSON.stringify(password));
+    try {
+      await changeAccountPassword(password);
       setPassword('');
-      setNotice('Administrator password updated.');
-      return;
+      setNotice('Your Firebase password was updated.');
+    } catch (error) {
+      console.error('Unable to update account password', error);
+      setNotice(error.code === 'auth/requires-recent-login'
+        ? 'For security, sign out and back in before changing your password.'
+        : error.message || 'Unable to update your password.');
     }
-    const current = JSON.parse(localStorage.getItem('tkvault-password-requests') || '[]');
-    localStorage.setItem('tkvault-password-requests', JSON.stringify([...current.filter((item) => item.username !== account.username), { username: account.username, group, password, status: 'pending' }]));
-    setPassword('');
-    setNotice('Request sent to the administrator for approval.');
-    refreshRequests();
   };
-  const decideRequest = (request, approved) => {
-    if (approved) localStorage.setItem(`tkvault-password-${request.username}`, JSON.stringify(request.password));
-    const next = requests.filter((item) => item.username !== request.username);
-    localStorage.setItem('tkvault-password-requests', JSON.stringify(next));
-    setRequests(next);
-  };
-  return <><div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ACCOUNT SETTINGS</span><h1>Settings</h1><p>Manage your profile and account access.</p></div></div><section className="panel settings-panel"><div className="settings-profile"><Avatar initials={group.slice(0, 2).toUpperCase()} src={profileImage} color="coral" /><div><h2>{account.name}</h2><p>{account.username}</p><label className="button button-quiet upload-label"><Upload size={15} /> Upload profile picture<input type="file" accept="image/*" onChange={uploadProfile} /></label></div></div><div className="settings-form"><h2>Change password</h2><p className="muted">{isAdministrator ? 'Administrator password changes take effect immediately.' : 'Requests are sent to the administrator for approval.'}</p><div className="settings-password-row"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" /><button className="button button-primary" onClick={requestPasswordChange}>{isAdministrator ? 'Save password' : 'Request change'}</button></div>{notice && <p className="settings-notice">{notice}</p>}</div>{isAdministrator && <div className="settings-requests"><h2>Password change requests</h2>{requests.length ? requests.map((request) => <div className="settings-request" key={request.username}><span><strong>{request.group}</strong><small>{request.username}</small></span><button className="button button-quiet" onClick={() => decideRequest(request, false)}>Deny</button><button className="button button-primary" onClick={() => decideRequest(request, true)}>Allow</button></div>) : <p className="muted">No pending requests.</p>}</div>}</section></div>{cropSource && <ImageCropper source={cropSource} onCancel={() => setCropSource('')} onSave={(image) => { onProfileChange(image); setCropSource(''); setNotice('Profile picture updated.'); }} />}</>;
+  return <><div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">ACCOUNT SETTINGS</span><h1>Settings</h1><p>Manage your profile and account access.</p></div></div><section className="panel settings-panel"><div className="settings-profile"><Avatar initials={group.slice(0, 2).toUpperCase()} src={profileImage} color="coral" /><div><h2>{account.name}</h2><p>{account.username}</p><label className="button button-quiet upload-label"><Upload size={15} /> Upload profile picture<input type="file" accept="image/*" onChange={uploadProfile} /></label></div></div><div className="settings-form"><h2>Change password</h2><p className="muted">Update your Firebase sign-in password.</p><div className="settings-password-row"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" /><button className="button button-primary" onClick={requestPasswordChange}>Save password</button></div>{notice && <p className="settings-notice">{notice}</p>}</div></section></div>{cropSource && <ImageCropper source={cropSource} onCancel={() => setCropSource('')} onSave={(image) => { onProfileChange(image); setCropSource(''); setNotice('Profile picture updated.'); }} />}</>;
 }
 
 function StatCard({ title, amount, icon: Icon, tone, change }) {
   return <article className={`stat-card ${tone}`}><div className="stat-top"><div className="stat-icon"><Icon size={20} /></div><span className="stat-change"><ArrowUpRight size={13} /> {change}</span></div><p>{title}</p><h3>{formatCurrency(amount)}</h3><span className="stat-caption">vs. previous month</span></article>;
 }
 
-function CollectionRow({ collection, onEdit, onDelete, showGroup = false }) {
+function CollectionRow({ collection, members = [], onEdit, onDelete, showGroup = false }) {
   const [openMenu, setOpenMenu] = useState(false);
+  const member = collection.memberId == null ? null : members.find((item) => String(item.id) === String(collection.memberId));
   const date = new Date(`${collection.date}T00:00:00`).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
-  return <article className="admin-monitor-card collection-monitor-card"><Avatar initials={collection.photo} src={imageSource(collection.photo)} color={collection.color} /><div className="admin-monitor-person"><strong>{collection.name}</strong><small>{collection.position}{showGroup && collection.group ? ` · ${collection.group}` : ''}</small><b>{formatCurrency(collection.amount)}</b><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span>{collection.eventName && <small className="monitor-event-name">{collection.eventName}</small>}</div>{onEdit && <div className="member-actions"><button className="row-more" onClick={() => setOpenMenu((isOpen) => !isOpen)} aria-label={`Actions for ${collection.name}`}>•••</button>{openMenu && <div className="member-menu"><button onClick={() => { setOpenMenu(false); onEdit(collection); }}>Edit</button><button className="danger-action" onClick={() => { setOpenMenu(false); onDelete(collection); }}>Delete</button></div>}</div>}<time>{date}</time></article>;
+  return <article className="admin-monitor-card collection-monitor-card"><Avatar initials={collection.photo} src={imageSource(member?.photo) || imageSource(collection.photo)} color={member?.color || collection.color} /><div className="admin-monitor-person"><strong>{collection.name}</strong><small>{collection.position}{showGroup && collection.group ? ` · ${collection.group}` : ''}</small><b>{formatCurrency(collection.amount)}</b><span className={`type-pill ${typeClass(collection.type)}`}>{collection.type}</span>{collection.eventName && <small className="monitor-event-name">{collection.eventName}</small>}</div>{onEdit && <div className="member-actions"><button className="row-more" onClick={() => setOpenMenu((isOpen) => !isOpen)} aria-label={`Actions for ${collection.name}`}>•••</button>{openMenu && <div className="member-menu"><button onClick={() => { setOpenMenu(false); onEdit(collection); }}>Edit</button><button className="danger-action" onClick={() => { setOpenMenu(false); onDelete(collection); }}>Delete</button></div>}</div>}<time>{date}</time></article>;
 }
 
-function Dashboard({ collections, onAdd, onAddEvent = () => onAdd(true), goal, onEditGoal, onViewAll }) {
+function Dashboard({ collections, members, onAdd, onAddEvent = () => onAdd(true), goal, onEditGoal, onViewAll }) {
   const [graphType, setGraphType] = useState('All collections');
   const graphCollections = graphType === 'All collections' ? collections : collections.filter((item) => item.type === graphType);
   const graphPath = graphType === 'Event Collection'
@@ -376,7 +434,7 @@ function Dashboard({ collections, onAdd, onAddEvent = () => onAdd(true), goal, o
         : 'M0 150 C50 135 62 120 100 125 S155 80 200 105 S260 128 300 85 S360 55 400 74 S445 55 500 35 S565 58 600 18';
   const totals = useMemo(() => collections.reduce((acc, item) => { acc.overall += item.amount; if (item.type === 'Event Collection') acc.event += item.amount; if (item.type === 'Weekly Dues Collection') acc.dues += item.amount; return acc; }, { overall: 0, event: 0, dues: 0 }), [collections]);
   const progress = Math.min(Math.round((totals.overall / goal) * 100), 100);
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel overview-panel"><div className="panel-heading"><div><span className="eyebrow">COLLECTION TRACKER</span><h2>Collection overview</h2><p>{graphType} · {graphCollections.length} records · {formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</p></div><select className="goal-select" value={graphType} onChange={(event) => setGraphType(event.target.value)}>  <option>All collections</option><option>Event Collection</option><option>Weekly Dues Collection</option></select></div><div className="overview-total"><span>Collected so far</span><strong>{formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</strong></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d={`${graphPath} L600 200 L0 200Z`} fill="url(#area)" /><path d={graphPath} fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><span className="eyebrow">MONTHLY TARGET</span><h2>Monthly goal</h2><p>{formatCurrency(goal)} target</p></div>  <button className="more-button" onClick={onEditGoal}>•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button" onClick={onViewAll}>View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">OVERVIEW · {monthLabel.toUpperCase()}</span><p>Here&apos;s what&apos;s happening with your collections.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid"><StatCard title="Overall collections" amount={totals.overall} icon={CircleDollarSign} tone="navy" change="Tracked" /><StatCard title="Event collections" amount={totals.event} icon={Sparkles} tone="yellow" change="Tracked" /><StatCard title="Weekly dues" amount={totals.dues} icon={CalendarDays} tone="orange" change="Tracked" /></div><div className="content-grid"><section className="panel chart-panel overview-panel"><div className="panel-heading"><div><span className="eyebrow">COLLECTION TRACKER</span><h2>Collection overview</h2><p>{graphType} · {graphCollections.length} records · {formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</p></div><select className="goal-select" value={graphType} onChange={(event) => setGraphType(event.target.value)}>  <option>All collections</option><option>Event Collection</option><option>Weekly Dues Collection</option></select></div><div className="overview-total"><span>Collected so far</span><strong>{formatCurrency(graphCollections.reduce((sum, item) => sum + item.amount, 0))}</strong></div><div className="chart"><div className="chart-y"><span>₱60k</span><span>₱40k</span><span>₱20k</span><span>₱0</span></div><div className="chart-area"><div className="grid-lines"><i /><i /><i /><i /></div><svg viewBox="0 0 600 200" preserveAspectRatio="none" aria-label="Collection trend"><defs><linearGradient id="area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--group-accent)" stopOpacity=".28" /><stop offset="1" stopColor="var(--group-accent)" stopOpacity="0" /></linearGradient></defs><path d={`${graphPath} L600 200 L0 200Z`} fill="url(#area)" /><path d={graphPath} fill="none" stroke="var(--group-accent)" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div></div></section><section className="panel goal-panel"><div className="panel-heading"><div><span className="eyebrow">MONTHLY TARGET</span><h2>Monthly goal</h2><p>{formatCurrency(goal)} target</p></div>  <button className="more-button" onClick={onEditGoal}>•••</button></div><div className="goal-ring" style={{ '--progress': `${progress * 3.6}deg` }}><div><strong>{progress}%</strong><span>achieved</span></div></div><div className="goal-numbers"><span><i className="dot dot-yellow" />Collected <strong>{formatCurrency(totals.overall)}</strong></span><span><i className="dot dot-light" />Goal <strong>{formatCurrency(goal)}</strong></span></div><div className="goal-message"><Sparkles size={15} /><span>{progress >= 75 ? 'You&apos;re on a great pace!' : 'Keep building your collection goal.'}</span></div></section></div><section className="panel recent-panel"><div className="panel-heading"><div><h2>Recent collections</h2><p>Your latest recorded contributions</p></div><button className="text-button" onClick={onViewAll}>View all <ArrowUpRight size={15} /></button></div><div className="collection-list">{collections.slice(0, 5).map((item) => <CollectionRow key={item.id} collection={item} members={members} />)}</div></section></div>;
 }
 
 function WeeklyDuesUsage({ usages = [], onChange }) {
@@ -385,7 +443,7 @@ function WeeklyDuesUsage({ usages = [], onChange }) {
   const submit = (event) => {
     event.preventDefault();
     if (!name.trim() || Number(amount) <= 0) return;
-    onChange([{ id: Date.now(), name: name.trim(), amount: Number(amount) }, ...usages]);
+    onChange([{ id: createRecordId(), name: name.trim(), amount: Number(amount) }, ...usages]);
     setName('');
     setAmount('');
   };
@@ -409,10 +467,10 @@ function MentorsDashboard({ members, collections, usages, onAdd, onAddEvent = ()
   const totalUnpaid = memberRows.reduce((sum, member) => sum + member.unpaidBalance, 0);
   const weeklyExpected = memberRows.reduce((sum, member) => sum + member.weeklyRate, 0);
   const eventCollections = collections.filter((item) => item.type === 'Event Collection');
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">MENTORS DASHBOARD · {monthLabel.toUpperCase()}</span><h1>Overview</h1><p>Track cashflow, weekly rates, and unpaid balances for every member.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid mentors-summary-grid"><StatCard title="Weekly cashflow" amount={totalPaid} icon={CircleDollarSign} tone="navy" change="Paid dues" /><StatCard title="Unpaid balance" amount={totalUnpaid} icon={WalletCards} tone="orange" change="Outstanding" /><StatCard title="Weekly expected" amount={weeklyExpected} icon={CalendarDays} tone="yellow" change="By status" />  <StatCard title="Event collection" amount={eventCollections.reduce((sum, item) => sum + item.amount, 0)} icon={Sparkles} tone="blue" change="Tracked events" /></div><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">EVENT COLLECTIONS</span><h2>Event collection</h2><p>{formatCurrency(eventCollections.reduce((sum, item) => sum + item.amount, 0))} total</p></div><button className="button button-quiet" onClick={onAddEvent}>Add event</button></div><div className="collection-list">{eventCollections.slice(0, 3).map((item) => <CollectionRow key={item.id} collection={item} />)}</div></section><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">MEMBER CASHFLOW</span><h2>Members and unpaid balance</h2><p>Weekly payment is based on each member&apos;s status.</p></div><button className="button button-quiet" onClick={onApplyWeeklyDues}>Apply this week&apos;s dues</button></div>    <div className="mentors-cashflow-list">{memberRows.length ? memberRows.map((member) => <article className="mentors-cashflow-row" key={member.id}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position} · {member.status}</span></div><div className="cashflow-rate"><small>Weekly rate</small><strong>{formatCurrency(member.weeklyRate)}</strong></div><div className="cashflow-paid"><small>Paid dues</small><strong>{formatCurrency(member.weeklyPaid)}</strong></div><div className={member.unpaidBalance ? 'cashflow-unpaid' : 'cashflow-settled'}><small>Unpaid balance</small><strong>{formatCurrency(member.unpaidBalance)}</strong></div></article>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section><WeeklyDuesUsage usages={usages} onChange={onChangeUsage} /></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">MENTORS DASHBOARD · {monthLabel.toUpperCase()}</span><h1>Overview</h1><p>Track cashflow, weekly rates, and unpaid balances for every member.</p></div><div className="page-actions"><button className="button button-quiet" onClick={onAdd}><Plus size={17} /> Member collection</button><button className="button button-primary" onClick={onAddEvent}><Plus size={17} /> Event collection</button></div></div><div className="stats-grid mentors-summary-grid"><StatCard title="Weekly cashflow" amount={totalPaid} icon={CircleDollarSign} tone="navy" change="Paid dues" /><StatCard title="Unpaid balance" amount={totalUnpaid} icon={WalletCards} tone="orange" change="Outstanding" /><StatCard title="Weekly expected" amount={weeklyExpected} icon={CalendarDays} tone="yellow" change="By status" />  <StatCard title="Event collection" amount={eventCollections.reduce((sum, item) => sum + item.amount, 0)} icon={Sparkles} tone="blue" change="Tracked events" /></div><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">EVENT COLLECTIONS</span><h2>Event collection</h2><p>{formatCurrency(eventCollections.reduce((sum, item) => sum + item.amount, 0))} total</p></div><button className="button button-quiet" onClick={onAddEvent}>Add event</button></div><div className="collection-list">{eventCollections.slice(0, 3).map((item) => <CollectionRow key={item.id} collection={item} members={members} />)}</div></section><section className="panel mentors-dashboard-panel"><div className="panel-heading"><div><span className="eyebrow">MEMBER CASHFLOW</span><h2>Members and unpaid balance</h2><p>Weekly payment is based on each member&apos;s status.</p></div><button className="button button-quiet" onClick={onApplyWeeklyDues}>Apply this week&apos;s dues</button></div>    <div className="mentors-cashflow-list">{memberRows.length ? memberRows.map((member) => <article className="mentors-cashflow-row" key={member.id}><Avatar initials={member.photo} src={imageSource(member.photo)} color={member.color} /><div className="collection-person"><strong>{member.name}</strong><span>{member.position} · {member.status}</span></div><div className="cashflow-rate"><small>Weekly rate</small><strong>{formatCurrency(member.weeklyRate)}</strong></div><div className="cashflow-paid"><small>Paid dues</small><strong>{formatCurrency(member.weeklyPaid)}</strong></div><div className={member.unpaidBalance ? 'cashflow-unpaid' : 'cashflow-settled'}><small>Unpaid balance</small><strong>{formatCurrency(member.unpaidBalance)}</strong></div></article>) : <div className="empty-ledger">No members have been registered yet.</div>}</div></section><WeeklyDuesUsage usages={usages} onChange={onChangeUsage} /></div>;
 }
 
-function CollectionsPage({ collections, onAdd, onAddEvent = () => onAdd(true), onEdit, onDelete }) {
+function CollectionsPage({ collections, members, onAdd, onAddEvent = () => onAdd(true), onEdit, onDelete }) {
   const [query, setQuery] = useState('');
   const [type, setType] = useState('All types');
   const filteredCollections = collections.filter((collection) => {
@@ -442,7 +500,7 @@ function CollectionsPage({ collections, onAdd, onAddEvent = () => onAdd(true), o
         </select>
       </div>
       <div className="ledger-list">{filteredCollections.length
-        ? filteredCollections.map((collection) => <CollectionRow key={collection.id} collection={collection} onEdit={onEdit} onDelete={onDelete} />)
+        ? filteredCollections.map((collection) => <CollectionRow key={collection.id} collection={collection} members={members} onEdit={onEdit} onDelete={onDelete} />)
         : <div className="empty-ledger">No collections match your filters.</div>}
       </div>
     </section>
@@ -460,13 +518,13 @@ function AddCollection({ members, collection, onSubmit, onCancel, isMentors = fa
     if ((eventMode && !form.contributorName.trim()) || (!eventMode && !selectedMember) || !form.amount) return;
     onSubmit({
       ...form,
-      id: collection?.id || Date.now(),
+      id: collection?.id || createRecordId(),
       memberId: eventMode ? null : selectedMember.id,
       name: eventMode ? form.contributorName.trim() : selectedMember.name,
       position: eventMode ? form.position : selectedMember.position,
       amount: Number(form.amount),
       eventName: eventMode ? form.eventName.trim() : '',
-      photo: eventMode ? form.contributorName.trim().split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() : selectedMember.photo,
+      photo: eventMode ? form.contributorName.trim().split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() : selectedMember.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
       color: eventMode ? 'gold' : selectedMember.color,
     });
   };
@@ -519,7 +577,7 @@ function AddMember({ member, onSubmit, onCancel, isMentors = false }) {
     if (!form.name) return;
     onSubmit({
       ...member,
-      id: member?.id || Date.now(),
+      id: member?.id || createRecordId(),
       name: form.name,
       position: form.position,
       photo: form.photo || form.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
@@ -590,13 +648,37 @@ function LiquidationPage({ report, onReportChange, receipts, onReceiptChange, sh
     }
     onSheetLinkChange(value);
   };
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div></div><div className="report-layout"><section className="panel report-panel"><div className="report-icon"><FileSpreadsheet size={28} /></div><h2>Keep your reports in one place</h2><p className="muted">Upload an Excel or executable report file to make it available to your team.</p><label className="dropzone"><Upload size={22} /><strong>{report ? report.name : 'Choose a file or drag it here'}</strong><span>Supported files: .xlsx, .exe · Max 25 MB</span><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label>{report && <><div className="uploaded-file"><FileSpreadsheet size={19} /><span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Preview available</small></span><button className="icon-button" onClick={() => download(report)} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button><label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label><button className="icon-button danger-action" onClick={removeReport} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button></div><div className="file-preview">{preview(report)}</div></>}{isAdministrator && <form className="sheet-link-form" onSubmit={saveSheetLink}><label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label><button className="button button-primary" type="submit">Save link</button></form>}{sheetLink && <a className="sheet-link-card" href={sheetLink} target="_blank" rel="noreferrer"><ExternalLink size={18} /><span><strong>Open shared liquidation sheet</strong><small>Use the Google Sheet provided by the administrator.</small></span><ArrowUpRight size={16} /></a>}</section><section className="panel receipts-panel"><div className="panel-heading"><div><h2>Receipts</h2><p>Upload, edit, replace or download supporting receipts.</p></div><div className="receipt-count">{receipts.length}</div></div><label className="receipt-upload"><Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel</small></span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={addReceipt} /></label><div className="receipt-list">{receipts.length ? receipts.map((receipt, index) => <div className="receipt-item" key={`${receipt.name}-${index}`}><div className="receipt-file-icon"><FileSpreadsheet size={17} /></div><span><strong>{receipt.name}</strong><small>{(receipt.size / 1024).toFixed(1)} KB · Preview ready</small></span><button className="icon-button" onClick={() => download(receipt)} aria-label={`Download ${receipt.name}`}><ArrowDownToLine size={16} /></button><button className="icon-button" onClick={() => editReceiptName(index)} aria-label={`Rename ${receipt.name}`}><Pencil size={16} /></button><label className="icon-button" aria-label={`Replace ${receipt.name}`}><Upload size={16} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={(event) => replaceReceipt(event, index)} /></label><button className="icon-button danger-action" onClick={() => removeReceipt(index)} aria-label={`Delete ${receipt.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-receipts">No receipts uploaded yet.</div>}</div>{receipts[0] && <div className="file-preview">{preview(receipts[0])}</div>}</section></div></div>;
+  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div></div><div className="report-layout"><section className="panel report-panel"><div className="report-icon"><FileSpreadsheet size={28} /></div><h2>Keep your reports in one place</h2><p className="muted">Uploaded files stay on this device. Add a shared Google Sheet below for your team to use.</p><label className="dropzone"><Upload size={22} /><strong>{report ? report.name : 'Choose a file or drag it here'}</strong><span>Supported files: .xlsx, .exe · Max 25 MB</span><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label>{report && <><div className="uploaded-file"><FileSpreadsheet size={19} /><span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Preview available</small></span><button className="icon-button" onClick={() => download(report)} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button><label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label><button className="icon-button danger-action" onClick={removeReport} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button></div><div className="file-preview">{preview(report)}</div></>}{isAdministrator && <form className="sheet-link-form" onSubmit={saveSheetLink}><label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label><button className="button button-primary" type="submit">Save link</button></form>}{sheetLink && <a className="sheet-link-card" href={sheetLink} target="_blank" rel="noreferrer"><ExternalLink size={18} /><span><strong>Open shared liquidation sheet</strong><small>Use the Google Sheet provided by the administrator.</small></span><ArrowUpRight size={16} /></a>}</section><section className="panel receipts-panel"><div className="panel-heading"><div><h2>Receipts</h2><p>Receipts are stored in this browser/device.</p></div><div className="receipt-count">{receipts.length}</div></div><label className="receipt-upload"><Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel</small></span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={addReceipt} /></label><div className="receipt-list">{receipts.length ? receipts.map((receipt, index) => <div className="receipt-item" key={`${receipt.name}-${index}`}><div className="receipt-file-icon"><FileSpreadsheet size={17} /></div><span><strong>{receipt.name}</strong><small>{(receipt.size / 1024).toFixed(1)} KB · Preview ready</small></span><button className="icon-button" onClick={() => download(receipt)} aria-label={`Download ${receipt.name}`}><ArrowDownToLine size={16} /></button><button className="icon-button" onClick={() => editReceiptName(index)} aria-label={`Rename ${receipt.name}`}><Pencil size={16} /></button><label className="icon-button" aria-label={`Replace ${receipt.name}`}><Upload size={16} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={(event) => replaceReceipt(event, index)} /></label><button className="icon-button danger-action" onClick={() => removeReceipt(index)} aria-label={`Delete ${receipt.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-receipts">No receipts uploaded yet.</div>}</div>{receipts[0] && <div className="file-preview">{preview(receipts[0])}</div>}</section></div></div>;
 }
 
 function normalizeCollection(collection) {
   return collection.type === 'Locale Collection'
     ? { ...collection, type: 'Event Collection', eventName: collection.eventName || 'Legacy collection' }
     : collection;
+}
+
+function compactCollectionPhotos(collections, members) {
+  const membersById = new Map(members.map((member) => [String(member.id), member]));
+  return collections.map((collection) => {
+    const member = collection.memberId == null ? null : membersById.get(String(collection.memberId));
+    if (!member || !collection.photo?.startsWith('data:image/')) return collection;
+    return {
+      ...collection,
+      photo: member.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+    };
+  });
+}
+
+function saveLocalData(key, value) {
+  try {
+    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+    return null;
+  } catch (error) {
+    console.error(`Unable to save ${key}`, error);
+    return error?.name === 'QuotaExceededError'
+      ? 'This device is out of storage. Remove old large reports or receipts, then try saving again.'
+      : 'Your changes could not be saved on this device. Check available storage and try again.';
+  }
 }
 
 function App() {
@@ -615,6 +697,10 @@ function App() {
   const [duesUsage, setDuesUsage] = useState([]);
   const [sheetLink, setSheetLink] = useState('');
   const [adminDataVersion, setAdminDataVersion] = useState(0);
+  const [storageError, setStorageError] = useState('');
+  const [cloudError, setCloudError] = useState('');
+  const [cloudReady, setCloudReady] = useState(false);
+  const cloudBaselines = useRef(new Map());
   const [goal, setGoal] = useState(100000);
   const [profileImage, setProfileImage] = useState('');
   const [adminGroupView, setAdminGroupView] = useState(false);
@@ -628,6 +714,25 @@ function App() {
     window.addEventListener('tkvault-admin-data-change', refreshAdminData);
     return () => window.removeEventListener('tkvault-admin-data-change', refreshAdminData);
   }, []);
+  useEffect(() => {
+    if (!auth || !account) return undefined;
+    return watchEventOptions((options, fromCache) => {
+      if (fromCache) return;
+      if (Array.isArray(options)) {
+        const error = saveLocalData('tkvault-event-options', options);
+        if (error) setStorageError(error);
+        window.dispatchEvent(new Event('tkvault-event-options-change'));
+      } else if (account.role === 'administrator') {
+        saveEventOptions(loadEventOptions()).catch((error) => {
+          console.error('Unable to initialize shared event choices', error);
+          setCloudError('Default event choices could not be shared through Firebase.');
+        });
+      }
+    }, (error) => {
+      console.error('Unable to load shared event choices', error);
+      setCloudError('Event choices could not be loaded from Firebase.');
+    });
+  }, [auth, account?.uid, account?.role]);
   const readGroupData = (key, selectedGroup, fallback) => {
     try {
       return JSON.parse(localStorage.getItem(`tkvault-${key}-${selectedGroup}`)) || fallback;
@@ -636,30 +741,75 @@ function App() {
     }
   };
   useEffect(() => {
-    if (!group) return;
-    localStorage.setItem(`tkvault-collections-${group}`, JSON.stringify(collections));
-  }, [collections, group]);
+    let active = true;
+    const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+      if (!user) {
+        if (active) {
+          setAuth(false);
+          setAccount(null);
+          setGroup('');
+        }
+        return;
+      }
+      try {
+        const loggedInAccount = await getAccountForUser(user);
+        if (active) handleLogin(loggedInAccount);
+      } catch (error) {
+        console.error('Unable to load the signed-in account profile', error);
+        if (active) setCloudError(error.message || 'Unable to load your account profile.');
+      }
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
   useEffect(() => {
     if (!group) return;
-    localStorage.setItem(`tkvault-members-${group}`, JSON.stringify(members));
-  }, [members, group]);
+    const error = saveLocalData(`tkvault-collections-${group}`, collections);
+    if (error) setStorageError(error);
+    if (cloudReady) syncGroupRecords(group, 'collections', compactCollectionPhotos(collections, members), cloudBaselines.current.get(`${group}:collections`)).catch((error) => {
+      console.error(`Unable to sync ${group} collections`, error);
+      setCloudError('Collections could not sync to Firebase. Check your connection and Firestore setup.');
+    });
+  }, [collections, members, group, cloudReady]);
   useEffect(() => {
     if (!group) return;
-    localStorage.setItem(`tkvault-report-${group}`, JSON.stringify(report));
-    localStorage.setItem(`tkvault-receipts-${group}`, JSON.stringify(receipts));
-    localStorage.setItem(`tkvault-sheet-link-${group}`, sheetLink);
-    localStorage.setItem(`tkvault-dues-usage-${group}`, JSON.stringify(duesUsage));
-    localStorage.setItem(`tkvault-goal-${group}`, JSON.stringify(goal));
+    const error = saveLocalData(`tkvault-members-${group}`, members);
+    if (error) setStorageError(error);
+    if (cloudReady) syncGroupRecords(group, 'members', members, cloudBaselines.current.get(`${group}:members`)).catch((error) => {
+      console.error(`Unable to sync ${group} members`, error);
+      setCloudError('Member changes could not sync to Firebase. Check your connection and Firestore setup.');
+    });
+  }, [members, group, cloudReady]);
+  useEffect(() => {
+    if (!group) return;
+    const error = saveLocalData(`tkvault-report-${group}`, report)
+      || saveLocalData(`tkvault-receipts-${group}`, receipts)
+      || saveLocalData(`tkvault-sheet-link-${group}`, sheetLink)
+      || saveLocalData(`tkvault-dues-usage-${group}`, duesUsage)
+      || saveLocalData(`tkvault-goal-${group}`, goal);
+    if (error) setStorageError(error);
   }, [report, receipts, sheetLink, duesUsage, group]);
   useEffect(() => {
-    if (group !== 'Mentors' || new Date().getDay() !== 6) return;
+    if (!group || !cloudReady) return;
+    setGroupMetadata(group, { goal, sheetLink, duesUsage }).catch((error) => {
+      console.error(`Unable to sync ${group} settings`, error);
+      setCloudError('Group settings could not sync to Firebase. Check your connection and Firestore setup.');
+    });
+  }, [goal, sheetLink, duesUsage, group, cloudReady]);
+  useEffect(() => {
+    if (group !== 'Mentors' || new Date().getDay() !== 6 || !cloudReady) return undefined;
     const currentDate = new Date();
     const saturdayKey = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-    const storageKey = 'tkvault-mentors-last-weekly-dues';
-    if (localStorage.getItem(storageKey) === saturdayKey) return;
-    localStorage.setItem(storageKey, saturdayKey);
-    setMembers((current) => current.map((member) => ({ ...member, unpaidBalance: (Number(member.unpaidBalance) || 0) + (mentorsWeeklyRate[member.status || 'Unemployed'] || mentorsWeeklyRate.Unemployed) })));
-  }, [group]);
+    let active = true;
+    claimWeeklyDues(group, saturdayKey, mentorsWeeklyRate).catch((error) => {
+      if (!active) return;
+      console.error('Unable to apply weekly dues in Firebase', error);
+      setCloudError('Saturday dues could not be applied. Check the Firebase connection and group rules.');
+    });
+    return () => { active = false; };
+  }, [group, cloudReady]);
   useEffect(() => {
     if (!account) return;
     const saved = localStorage.getItem(`tkvault-profile-${account.username}`);
@@ -669,7 +819,7 @@ function App() {
   const editCollection = (item) => setModal({ type: 'edit-collection', collection: item });
   const deleteCollection = (item) => { if (window.confirm(`Delete ${item.name}'s collection?`)) setCollections((current) => current.filter((collection) => collection.id !== item.id)); };
   const addMember = (item) => { setMembers((current) => [item, ...current]); setModal(false); setProfileReadOnly(false); setActive("Member's Profile"); };
-  const editMember = (item) => { setMembers((current) => current.map((member) => member.id === item.id ? item : member)); setCollections((current) => current.map((collection) => collection.memberId === item.id ? { ...collection, name: item.name, position: item.position, photo: item.photo, color: item.color } : collection)); setModal(false); };
+  const editMember = (item) => { setMembers((current) => current.map((member) => member.id === item.id ? item : member)); setCollections((current) => current.map((collection) => collection.memberId === item.id ? { ...collection, name: item.name, position: item.position, photo: item.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase(), color: item.color } : collection)); setModal(false); };
   const applyWeeklyDues = () => { setMembers((current) => current.map((member) => ({ ...member, unpaidBalance: (Number(member.unpaidBalance) || 0) + (mentorsWeeklyRate[member.status || 'Unemployed'] || mentorsWeeklyRate.Unemployed) }))); };
   const deleteMember = (item) => {
     if (!window.confirm(`Delete ${item.name} and their recorded collections?`)) return;
@@ -682,7 +832,7 @@ function App() {
     const demoNames = new Set(['Maya Santos', 'Rafael Cruz', 'Jasmine Lee', 'Andre Villanueva']);
     const storedCollections = readGroupData('collections', selectedGroup, []);
     const storedMembers = readGroupData('members', selectedGroup, []);
-    const cleanCollections = storedCollections.filter((item) => !demoNames.has(item.name));
+    const cleanCollections = compactCollectionPhotos(storedCollections.filter((item) => !demoNames.has(item.name)), storedMembers);
     const cleanMembers = storedMembers.filter((item) => !demoNames.has(item.name));
     setCollections(cleanCollections.map(normalizeCollection));
     setMembers(cleanMembers);
@@ -692,10 +842,99 @@ function App() {
     setDuesUsage(readGroupData('dues-usage', selectedGroup, []));
     setGoal(readGroupData('goal', selectedGroup, 100000));
   };
-  const allGroupCollections = useMemo(() => account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('collections', item.name, []).map(normalizeCollection).map((collection) => ({ ...collection, group: item.name }))) : [], [account?.role, adminDataVersion]);
+  useEffect(() => {
+    if (!auth || !account || !group) {
+      setCloudReady(false);
+      return undefined;
+    }
+    let active = true;
+    setCloudReady(false);
+    const targets = account.role === 'administrator' ? groups.map((item) => item.name) : [group];
+    const unsubscribers = [];
+    targets.forEach((target) => {
+      const isActiveGroup = target === group;
+      const ready = { collections: false, members: false, metadata: false };
+      const finishLoad = (key) => {
+        ready[key] = true;
+        if (isActiveGroup && Object.values(ready).every(Boolean)) setCloudReady(true);
+      };
+      const listenRecords = (recordType) => watchGroupRecords(target, recordType, (records, fromCache) => {
+        if (!active || fromCache) return;
+        cloudBaselines.current.set(`${target}:${recordType}`, new Map(records.map((item) => [String(item.id), item])));
+        const normalized = recordType === 'collections'
+          ? compactCollectionPhotos(records.map(normalizeCollection), readGroupData('members', target, []))
+          : records;
+        const storageKey = `tkvault-${recordType}-${target}`;
+        const localRecords = readGroupData(recordType, target, []);
+        if (normalized.length || !localRecords.length) {
+          const localError = saveLocalData(storageKey, normalized);
+          if (localError) setStorageError(localError);
+          window.dispatchEvent(new Event('tkvault-admin-data-change'));
+        }
+        if (normalized.length === 0) {
+          if (localRecords.length) {
+            const recordsToMigrate = recordType === 'collections'
+              ? compactCollectionPhotos(localRecords, readGroupData('members', target, []))
+              : localRecords;
+            syncGroupRecords(target, recordType, recordsToMigrate, cloudBaselines.current.get(`${target}:${recordType}`)).catch((error) => {
+              console.error(`Unable to migrate ${target} ${recordType} to Firebase`, error);
+              setCloudError(`Saved ${target} ${recordType} could not sync to Firebase.`);
+            });
+          } else if (isActiveGroup) {
+            if (recordType === 'collections') setCollections([]);
+            else setMembers([]);
+          }
+        } else if (isActiveGroup) {
+          if (recordType === 'collections') setCollections(normalized);
+          else setMembers(normalized);
+        }
+        if (isActiveGroup) finishLoad(recordType);
+      }, (error) => {
+        console.error(`Unable to load ${target} ${recordType} from Firebase`, error);
+        setCloudError(`Could not load ${target} ${recordType} from Firebase. Check Firestore rules and network access.`);
+      });
+      unsubscribers.push(listenRecords('collections'), listenRecords('members'));
+      unsubscribers.push(watchGroupMetadata(target, (metadata, fromCache) => {
+        if (!active || fromCache) return;
+        if (metadata) {
+          if (isActiveGroup) {
+            setGoal(Number(metadata.goal) || 100000);
+            setSheetLink(metadata.sheetLink || '');
+            setDuesUsage(Array.isArray(metadata.duesUsage) ? metadata.duesUsage : []);
+          }
+          saveLocalData(`tkvault-goal-${target}`, Number(metadata.goal) || 100000);
+          saveLocalData(`tkvault-sheet-link-${target}`, metadata.sheetLink || '');
+          saveLocalData(`tkvault-dues-usage-${target}`, Array.isArray(metadata.duesUsage) ? metadata.duesUsage : []);
+        } else if (isActiveGroup) {
+          setGroupMetadata(target, { goal, sheetLink, duesUsage }).catch((error) => {
+            console.error(`Unable to initialize ${target} Firebase settings`, error);
+            setCloudError(`Settings for ${target} could not sync to Firebase.`);
+          });
+        }
+        window.dispatchEvent(new Event('tkvault-admin-data-change'));
+        if (isActiveGroup) finishLoad('metadata');
+      }, (error) => {
+        console.error(`Unable to load ${target} settings from Firebase`, error);
+        setCloudError(`Could not load ${target} settings from Firebase.`);
+      }));
+    });
+    return () => {
+      active = false;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [auth, account?.uid, account?.role, group]);
+  const allGroupCollections = useMemo(() => account?.role === 'administrator' ? groups.flatMap((item) => {
+    const groupMembers = readGroupData('members', item.name, []);
+    const memberById = new Map(groupMembers.map((member) => [String(member.id), member]));
+    return readGroupData('collections', item.name, []).map(normalizeCollection).map((collection) => {
+      const member = collection.memberId == null ? null : memberById.get(String(collection.memberId));
+      return { ...collection, group: item.name, photo: member?.photo || collection.photo, color: member?.color || collection.color };
+    });
+  }) : [], [account?.role, adminDataVersion]);
   const allGroupMembers = useMemo(() => account?.role === 'administrator' ? groups.flatMap((item) => readGroupData('members', item.name, []).map((member) => ({ ...member, group: item.name }))) : [], [account?.role, adminDataVersion]);
   const handleLogin = (loggedInAccount) => {
-    setAccount(loggedInAccount);
+    setAccount({ ...loggedInAccount, initials: loggedInAccount.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() });
+    setCloudError('');
     setAuth(true);
     if (loggedInAccount.role === 'group') selectGroup(loggedInAccount.group);
     if (loggedInAccount.role === 'administrator') {
@@ -703,9 +942,9 @@ function App() {
       setActive('Dashboard');
     }
   };
-  const logout = () => { setAuth(false); setAccount(null); setGroup(''); };
+  const logout = () => { signOutAccount().catch((error) => { console.error('Unable to sign out from Firebase', error); setCloudError('Sign out could not be completed. Please try again.'); }); };
   if (showSplash) return <SplashPage />;
-  if (!auth) return signup ? <Signup onBack={() => { setSignup(false); setAuth(true); }} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
+  if (!auth) return signup ? <Signup onBack={() => setSignup(false)} onCreate={handleLogin} /> : <Login onLogin={handleLogin} onSignup={() => setSignup(true)} />;
   if (!group) return <GroupPage account={account} onSelect={(selectedGroup) => selectGroup(selectedGroup, true)} onBack={() => { selectGroup(groups[0].name); setActive('Dashboard'); }} />;
   const isAdministrator = account.role === 'administrator' && !adminGroupView;
   const groupTheme = isAdministrator ? 'royal-blue' : groups.find((item) => item.name === group)?.color || 'royal-blue';
@@ -731,14 +970,16 @@ function App() {
         onProfile={() => { setProfileReadOnly(!isAdministrator); setActive(isAdministrator ? 'Admin Profile' : "Member's Profile"); }}
         onMenu={() => setMenuOpen(true)}
       />
+      {cloudError && <div className="cloud-warning" role="alert"><span>{cloudError}</span><button onClick={() => setCloudError('')} aria-label="Dismiss sync warning">Dismiss</button></div>}
+      {storageError && <div className="storage-warning" role="alert"><span>{storageError}</span><button onClick={() => setStorageError('')} aria-label="Dismiss storage warning">Dismiss</button></div>}
       {active === 'Dashboard' && (isAdministrator
         ? <AdministratorDashboard collections={allGroupCollections} groups={groups} />
         : group === 'Mentors'
           ? <MentorsDashboard members={members} collections={collections} onAdd={(eventMode = false) => { setActive('Collections'); setModal({ type: 'collection', eventMode: eventMode === true }); }} usages={duesUsage} onChangeUsage={setDuesUsage} onApplyWeeklyDues={applyWeeklyDues} />
-          : <Dashboard collections={collections} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={(eventMode = false) => { setActive('Collections'); setModal({ type: 'collection', eventMode: eventMode === true }); }} />)}
-      {active === 'Admin Profile' && isAdministrator && <AdministratorProfile members={allGroupMembers} />}
+          : <Dashboard collections={collections} members={members} goal={goal} onEditGoal={() => setModal('goal')} onViewAll={() => setActive('Collections')} onAdd={(eventMode = false) => { setActive('Collections'); setModal({ type: 'collection', eventMode: eventMode === true }); }} />)}
+      {active === 'Admin Profile' && isAdministrator && <><AdministratorProfile members={allGroupMembers} /><PendingAccounts /></>}
       {active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} isMentors={group === 'Mentors'} readOnly={profileReadOnly} onAdd={() => setModal('member')} onAddWeeklyDue={applyWeeklyDues} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}
-      {active === 'Collections' && <CollectionsPage collections={collections} onAdd={(eventMode = false) => setModal({ type: 'collection', eventMode: eventMode === true })} onEdit={editCollection} onDelete={deleteCollection} />}
+      {active === 'Collections' && <CollectionsPage collections={collections} members={members} onAdd={(eventMode = false) => setModal({ type: 'collection', eventMode: eventMode === true })} onEdit={editCollection} onDelete={deleteCollection} />}
       {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} isAdministrator={isAdministrator || adminGroupView} />}
       {active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}
       {active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}
