@@ -592,8 +592,6 @@ function AddMember({ member, onSubmit, onCancel, isMentors = false }) {
 }
 
 function LiquidationPage({
-  report,
-  onReportChange,
   receipts,
   onReceiptChange,
   sheetLink,
@@ -613,29 +611,24 @@ function LiquidationPage({
 
   useEffect(() => {
     if (!driveEndpoint || !group) return undefined;
-    const migrateLegacyFile = async (file, category) => {
+    const migrateLegacyReceipt = async (file) => {
       if (!file?.dataUrl || file.driveId || migrating.current.has(file.id)) return;
       migrating.current.add(file.id);
       try {
-        const saved = await uploadDriveFile(driveEndpoint, group, category, file);
+        const saved = await uploadDriveFile(driveEndpoint, group, 'receipt', file);
         const next = { ...saved, id: saved.driveId };
         delete next.dataUrl;
-        if (category === 'report') {
-          onReportChange((current) => current?.id === file.id ? next : current);
-        } else {
-          onReceiptChange((current) => current.map((receipt) => receipt.id === file.id ? next : receipt));
-        }
+        onReceiptChange((current) => current.map((receipt) => receipt.id === file.id ? next : receipt));
       } catch (error) {
         migrating.current.delete(file.id);
         setFileError(`Could not move ${file.name} to Google Drive: ${error.message}`);
       }
     };
 
-    if (report?.dataUrl) migrateLegacyFile(report, 'report');
     receipts.forEach((receipt) => {
-      if (receipt.dataUrl) migrateLegacyFile(receipt, 'receipt');
+      if (receipt.dataUrl) migrateLegacyReceipt(receipt);
     });
-  }, [driveEndpoint, group, report, receipts, onReportChange, onReceiptChange]);
+  }, [driveEndpoint, group, receipts, onReceiptChange]);
 
   useEffect(() => {
     if (!driveEndpoint || !group) return undefined;
@@ -652,10 +645,9 @@ function LiquidationPage({
         if (active) setFileError(`Could not preview ${file.name}: ${error.message}`);
       }
     };
-    loadPreview(report, 'report');
     loadPreview(receipts[0], 'receipt');
     return () => { active = false; };
-  }, [driveEndpoint, group, report?.driveId, report?.dataUrl, receipts[0]?.driveId, receipts[0]?.dataUrl]);
+  }, [driveEndpoint, group, receipts[0]?.driveId, receipts[0]?.dataUrl]);
 
   const runFileAction = async (action) => {
     setBusy(true);
@@ -670,11 +662,10 @@ function LiquidationPage({
     }
   };
 
-  const handleUpload = (file, category, replaceDriveId = '', replaceReceiptId = '') => runFileAction(async () => {
-    const saved = await uploadDriveFile(driveEndpoint, group, category, file, replaceDriveId);
+  const handleUpload = (file, replaceDriveId = '', replaceReceiptId = '') => runFileAction(async () => {
+    const saved = await uploadDriveFile(driveEndpoint, group, 'receipt', file, replaceDriveId);
     const next = { ...saved, id: saved.driveId };
-    if (category === 'report') onReportChange(next);
-    else onReceiptChange((current) => replaceReceiptId
+    onReceiptChange((current) => replaceReceiptId
       ? current.map((receipt) => receipt.id === replaceReceiptId ? next : receipt)
       : [next, ...current]);
   });
@@ -698,7 +689,7 @@ function LiquidationPage({
 
   const replaceReceipt = (event, index) => {
     const file = event.target.files?.[0];
-    if (file) handleUpload(file, 'receipt', receipts[index].driveId || '', receipts[index].id);
+    if (file) handleUpload(file, receipts[index].driveId || '', receipts[index].id);
     event.target.value = '';
   };
 
@@ -726,14 +717,6 @@ function LiquidationPage({
     runFileAction(async () => {
       if (receipt.driveId) await updateDriveFile(driveEndpoint, group, 'receipt', receipt.driveId, 'delete');
       onReceiptChange((items) => items.filter((item) => item.id !== receipt.id));
-    });
-  };
-
-  const removeReport = () => {
-    if (!window.confirm(`Delete ${report.name}?`)) return;
-    runFileAction(async () => {
-      if (report.driveId) await updateDriveFile(driveEndpoint, group, 'report', report.driveId, 'delete');
-      onReportChange(null);
     });
   };
 
@@ -768,55 +751,22 @@ function LiquidationPage({
     return <div className="file-preview-placeholder"><FileSpreadsheet size={18} /> {file.name} is ready to download.</div>;
   };
 
-  const handleReportInput = (event) => {
-    const file = event.target.files?.[0];
-    if (file) handleUpload(file, 'report', report?.driveId || '');
-    event.target.value = '';
-  };
-
   const handleReceiptInput = (event) => {
     const file = event.target.files?.[0];
-    if (file) handleUpload(file, 'receipt');
+    if (file) handleUpload(file);
     event.target.value = '';
   };
 
   return (
     <div className="dashboard-content">
       <div className="page-heading">
-        <div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div>
+        <div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Open your group&apos;s shared Google Sheets liquidation report.</p></div>
       </div>
       <div className="report-layout">
         <section className="panel report-panel">
           <div className="report-icon"><FileSpreadsheet size={28} /></div>
-          <h2>Keep your reports in one place</h2>
-          <p className="muted">Uploaded reports and receipts are saved to the administrator&apos;s Google Drive and shared with approved members of this group.</p>
-          {isAdministrator && (
-            <form className="sheet-link-form" onSubmit={saveDriveEndpoint}>
-              <label><Link size={16} /> Google Drive upload service URL
-                <input value={driveEndpointDraft} onChange={(event) => setDriveEndpointDraft(event.target.value)} placeholder="https://script.google.com/macros/s/.../exec" />
-              </label>
-              <button className="button button-primary" type="submit" disabled={busy}>Save Drive URL</button>
-            </form>
-          )}
-          {!driveEndpoint && <div className="drive-setup-note">Ask the administrator to deploy the Google Apps Script upload service and save its web app URL here before uploading files.</div>}
-          <label className={`dropzone ${!driveEndpoint || busy ? 'disabled' : ''}`}>
-            <Upload size={22} />
-            <strong>{busy ? 'Saving to Google Drive…' : report ? report.name : 'Choose a file or drag it here'}</strong>
-            <span>Supported files: .xlsx, .exe · Max 25 MB</span>
-            <input type="file" accept=".xlsx,.exe" disabled={!driveEndpoint || busy} onChange={handleReportInput} />
-          </label>
-          {report && (
-            <>
-              <div className="uploaded-file">
-                <FileSpreadsheet size={19} />
-                <span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Saved to Drive</small></span>
-                <button className="icon-button" onClick={() => download(report, 'report')} disabled={busy} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button>
-                <label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" disabled={busy || !driveEndpoint} onChange={handleReportInput} /></label>
-                <button className="icon-button danger-action" onClick={removeReport} disabled={busy} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button>
-              </div>
-              <div className="file-preview">{preview(report)}</div>
-            </>
-          )}
+          <h2>Shared liquidation report</h2>
+          <p className="muted">The liquidation report for this group is shared as a Google Sheet.</p>
           {isAdministrator && (
             <form className="sheet-link-form" onSubmit={saveSheetLink}>
               <label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
@@ -827,6 +777,15 @@ function LiquidationPage({
         </section>
         <section className="panel receipts-panel">
           <div className="panel-heading"><div><h2>Receipts</h2><p>Stored in the administrator&apos;s Google Drive.</p></div><div className="receipt-count">{receipts.length}</div></div>
+          {isAdministrator && (
+            <form className="sheet-link-form" onSubmit={saveDriveEndpoint}>
+              <label><Link size={16} /> Google Drive receipt storage URL
+                <input value={driveEndpointDraft} onChange={(event) => setDriveEndpointDraft(event.target.value)} placeholder="https://script.google.com/macros/s/.../exec" />
+              </label>
+              <button className="button button-primary" type="submit" disabled={busy}>Save Drive URL</button>
+            </form>
+          )}
+          {!driveEndpoint && <div className="drive-setup-note">Ask the administrator to configure the Google Drive service before uploading receipts.</div>}
           <label className={`receipt-upload ${!driveEndpoint || busy ? 'disabled' : ''}`}>
             <Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel · Max 25 MB</small></span>
             <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" disabled={!driveEndpoint || busy} onChange={handleReceiptInput} />
@@ -892,7 +851,6 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [collections, setCollections] = useState([]);
   const [members, setMembers] = useState([]);
-  const [report, setReport] = useState(null);
   const [receipts, setReceipts] = useState([]);
   const [duesUsage, setDuesUsage] = useState([]);
   const [sheetLink, setSheetLink] = useState('');
@@ -994,28 +952,24 @@ function App() {
   }, [members, group, cloudReady]);
   useEffect(() => {
     if (!group) return;
-    const error = saveLocalData(`tkvault-report-${group}`, report)
-      || saveLocalData(`tkvault-receipts-${group}`, receipts)
+    const error = saveLocalData(`tkvault-receipts-${group}`, receipts)
       || saveLocalData(`tkvault-sheet-link-${group}`, sheetLink)
       || saveLocalData(`tkvault-dues-usage-${group}`, duesUsage)
       || saveLocalData(`tkvault-goal-${group}`, goal);
     if (error) setStorageError(error);
-  }, [report, receipts, sheetLink, duesUsage, group]);
+  }, [receipts, sheetLink, duesUsage, group]);
   useEffect(() => {
     if (!group || !cloudReady) return;
-    const files = [
-      ...(report?.driveId ? [{ ...report, id: report.driveId, category: 'report' }] : []),
-      ...receipts.filter((receipt) => receipt.driveId).map((receipt) => ({
-        ...receipt,
-        id: receipt.driveId,
-        category: 'receipt',
-      })),
-    ];
+    const files = receipts.filter((receipt) => receipt.driveId).map((receipt) => ({
+      ...receipt,
+      id: receipt.driveId,
+      category: 'receipt',
+    }));
     syncGroupRecords(group, 'files', files, cloudBaselines.current.get(`${group}:files`)).catch((error) => {
       console.error(`Unable to sync ${group} Drive file records`, error);
       setCloudError('Google Drive file details could not sync to the group.');
     });
-  }, [report, receipts, group, cloudReady]);
+  }, [receipts, group, cloudReady]);
   useEffect(() => {
     if (!group || !cloudReady) return;
     setGroupMetadata(group, { goal, sheetLink, duesUsage }).catch((error) => {
@@ -1061,8 +1015,6 @@ function App() {
     const cleanMembers = storedMembers.filter((item) => !demoNames.has(item.name));
     setCollections(cleanCollections.map(normalizeCollection));
     setMembers(cleanMembers);
-    const storedReport = readGroupData('report', selectedGroup, null);
-    setReport(storedReport ? { ...storedReport, id: storedReport.id || createRecordId() } : null);
     setReceipts(readGroupData('receipts', selectedGroup, []).map((receipt) => ({
       ...receipt,
       id: receipt.id || createRecordId(),
@@ -1095,7 +1047,6 @@ function App() {
           : records;
         const storageKey = `tkvault-${recordType}-${target}`;
         const legacyFiles = recordType === 'files' ? [
-          ...(readGroupData('report', target, null) ? [{ ...readGroupData('report', target, null), id: 'report-local', category: 'report' }] : []),
           ...readGroupData('receipts', target, []).map((receipt, index) => ({
             ...receipt,
             id: receipt.id || `receipt-local-${index}`,
@@ -1105,24 +1056,33 @@ function App() {
         const localRecords = recordType === 'files'
           ? readGroupData('files', target, legacyFiles)
           : readGroupData(recordType, target, []);
-        if (normalized.length || !localRecords.length) {
+        const receiptRecords = recordType === 'files'
+          ? normalized.filter((file) => file.category === 'receipt')
+          : normalized;
+        const localReceiptRecords = recordType === 'files'
+          ? localRecords.filter((file) => file.category === 'receipt')
+          : localRecords;
+        if (recordType === 'files') {
+          cloudBaselines.current.set(`${target}:${recordType}`, new Map(receiptRecords.map((item) => [String(item.id), item])));
+        }
+        if (receiptRecords.length || !localReceiptRecords.length) {
           if (recordType !== 'files') {
             const localError = saveLocalData(storageKey, normalized);
             if (localError) setStorageError(localError);
           }
           window.dispatchEvent(new Event('tkvault-admin-data-change'));
         }
-        if (normalized.length === 0) {
-          if (localRecords.length && recordType !== 'files') {
+        if (receiptRecords.length === 0) {
+          if (localReceiptRecords.length && recordType !== 'files') {
             const recordsToMigrate = recordType === 'collections'
-              ? compactCollectionPhotos(localRecords, readGroupData('members', target, []))
-              : localRecords;
+              ? compactCollectionPhotos(localReceiptRecords, readGroupData('members', target, []))
+              : localReceiptRecords;
             syncGroupRecords(target, recordType, recordsToMigrate, cloudBaselines.current.get(`${target}:${recordType}`)).catch((error) => {
               console.error(`Unable to migrate ${target} ${recordType} to Firebase`, error);
               setCloudError(`Saved ${target} ${recordType} could not sync to Firebase.`);
             });
           } else if (recordType === 'files') {
-            const localDriveFiles = localRecords.filter((file) => file.driveId).map((file) => ({
+            const localDriveFiles = localReceiptRecords.filter((file) => file.driveId).map((file) => ({
               ...file,
               id: file.driveId,
             }));
@@ -1132,8 +1092,7 @@ function App() {
                 setCloudError(`Saved ${target} Drive file details could not sync to Firebase.`);
               });
             }
-            if (isActiveGroup && !localRecords.length) {
-              setReport(null);
+            if (isActiveGroup && !localReceiptRecords.length) {
               setReceipts([]);
             }
           } else if (isActiveGroup) {
@@ -1144,18 +1103,15 @@ function App() {
           if (recordType === 'collections') setCollections(normalized);
           else if (recordType === 'members') setMembers(normalized);
           else {
-            const remoteFiles = normalized;
-            const localLegacyFiles = localRecords.filter((file) => file.dataUrl);
+            const remoteFiles = receiptRecords;
+            const localLegacyFiles = localReceiptRecords.filter((file) => file.dataUrl);
             const filesById = new Map(remoteFiles.map((file) => [String(file.id), file]));
             localLegacyFiles.forEach((file) => {
               if (!filesById.has(String(file.id))) filesById.set(String(file.id), file);
             });
             const mergedFiles = [...filesById.values()];
-            const reportFile = mergedFiles.find((file) => file.category === 'report') || null;
-            const receiptFiles = mergedFiles.filter((file) => file.category === 'receipt');
-            setReport(reportFile);
+            const receiptFiles = mergedFiles;
             setReceipts(receiptFiles);
-            saveLocalData(`tkvault-report-${target}`, reportFile);
             saveLocalData(`tkvault-receipts-${target}`, receiptFiles);
           }
         }
@@ -1251,7 +1207,7 @@ function App() {
       {active === 'Admin Profile' && isAdministrator && <><AdministratorProfile members={allGroupMembers} /><PendingAccounts /></>}
       {active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} isMentors={group === 'Mentors'} readOnly={profileReadOnly} onAdd={() => setModal('member')} onAddWeeklyDue={applyWeeklyDues} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}
       {active === 'Collections' && <CollectionsPage collections={collections} members={members} onAdd={(eventMode = false) => setModal({ type: 'collection', eventMode: eventMode === true })} onEdit={editCollection} onDelete={deleteCollection} />}
-      {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} driveEndpoint={driveEndpoint} onDriveEndpointChange={async (endpoint) => { await saveDriveEndpoint(endpoint); setDriveEndpoint(endpoint); }} group={group} isAdministrator={isAdministrator || adminGroupView} />}
+      {active === 'Liquidation Report' && <LiquidationPage receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} driveEndpoint={driveEndpoint} onDriveEndpointChange={async (endpoint) => { await saveDriveEndpoint(endpoint); setDriveEndpoint(endpoint); }} group={group} isAdministrator={isAdministrator || adminGroupView} />}
       {active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}
       {active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}
     </main>
