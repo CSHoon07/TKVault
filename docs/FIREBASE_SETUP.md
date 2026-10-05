@@ -13,6 +13,18 @@ TKVault uses Firebase Authentication and Cloud Firestore for shared member and c
 
 Alternatively, after installing and authenticating the Firebase CLI, publish the checked-in rules with `firebase deploy --only firestore:rules`.
 
+## Save reports and receipts to the administrator's Google Drive
+
+The checked-in Apps Script service uploads files to private folders in the Drive of `tkdvofinance@gmail.com`. It validates Firebase ID tokens and only accepts administrator requests or approved group members uploading to their own group's folder. Do not publish Drive files as “anyone with the link.”
+
+1. Sign in to [Google Apps Script](https://script.google.com/) as `tkdvofinance@gmail.com` and create a project.
+2. Replace `Code.gs` with [`../google-drive/Code.gs`](../google-drive/Code.gs). In **Project Settings**, enable **Show "appsscript.json" manifest file in editor**, then replace the manifest with [`../google-drive/appsscript.json`](../google-drive/appsscript.json).
+3. Select **Deploy → New deployment → Web app**. Set **Execute as** to **Me (`tkdvofinance@gmail.com`)**, and **Who has access** to **Anyone**. Review and authorize the requested Drive and external-request permissions, then deploy.
+4. Copy the deployed web app URL ending in `/exec`. The URL supplied for the current deployment is preconfigured in TKVault. Sign in as administrator and open a group’s **Liquidation Report** to confirm it. If you deploy a different web app URL, paste it into **Google Drive upload service URL** and save; the replacement is shared through protected app settings.
+5. Uploaded files are stored privately under `TKVault/<Group>/Liquidation Reports` or `TKVault/<Group>/Receipts`. Existing device-local files are migrated automatically once the endpoint is configured. Drive metadata is shared through Firestore; file contents stay in the admin Drive and use that account&apos;s Drive storage quota.
+
+For code changes, update the Apps Script project and deploy a new version of the existing deployment so its `/exec` URL remains unchanged. If your Google account or Workspace blocks web apps available to **Anyone**, this deployment option must be enabled by the account administrator.
+
 ## Free hosting
 
 For the first deployment, open **Repository Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. The workflow cannot enable this repository setting itself with GitHub's restricted default workflow token. Afterward, the GitHub Pages workflow builds and deploys the web app when changes reach `main`.
@@ -22,5 +34,5 @@ GitHub Pages is free for a public repository, and Firestore/Auth can remain on F
 ## Shared and device-local data
 
 - Members, collections, weekly-dues usage, collection goal, Google Sheets link, and event choices sync through Firestore. Saturday dues and their once-per-date marker are committed together so a failed update cannot leave dues unrecorded or apply them twice.
-- Uploaded liquidation files and receipts remain in the browser/device that uploaded them. Use the shared Google Sheets URL for a team-editable liquidation report; Firestore documents have a 1 MiB size limit and are not file storage.
+- Uploaded liquidation files and receipts are stored in the administrator's Google Drive after the Apps Script service is configured. The shared Google Sheets URL remains available for team-editable reports; Firestore documents have a 1 MiB size limit and are not file storage.
 - Existing browser-local members and collections are copied to Firestore the first time an authenticated admin or group account opens that group. Keep a separate backup before enabling the cloud sync.

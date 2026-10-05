@@ -32,7 +32,8 @@ import {
   X,
 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth as firebaseAuth, changeAccountPassword, claimWeeklyDues, createGroupAccount, getAccountForUser, saveEventOptions, setAccountStatus, setGroupMetadata, signInAccount, signOutAccount, watchEventOptions, watchGroupMetadata, watchGroupRecords, watchPendingAccounts, syncGroupRecords } from './firebase';
+import { auth as firebaseAuth, changeAccountPassword, claimWeeklyDues, createGroupAccount, DEFAULT_DRIVE_ENDPOINT, getAccountForUser, saveDriveEndpoint, saveEventOptions, setAccountStatus, setGroupMetadata, signInAccount, signOutAccount, watchDriveEndpoint, watchEventOptions, watchGroupMetadata, watchGroupRecords, watchPendingAccounts, syncGroupRecords } from './firebase';
+import { base64ToBlob, downloadDriveFile, updateDriveFile, uploadDriveFile } from './googleDrive';
 import './styles.css';
 
 const imageAssets = import.meta.glob('./image/*.png', { eager: true, query: '?url', import: 'default' });
@@ -590,65 +591,264 @@ function AddMember({ member, onSubmit, onCancel, isMentors = false }) {
   return <><div className="modal-backdrop"><div className="modal"><div className="modal-heading"><div><span className="eyebrow">MEMBER DIRECTORY</span><h2>{member ? 'Edit member profile' : 'Add member profile'}</h2><p>{member ? 'Update this member profile.' : 'Create a member profile for your group.'}</p></div><button className="close-button" onClick={onCancel}><X size={19} /></button></div><form onSubmit={submit} className="modal-form"><div className="member-photo-upload">{form.photo?.startsWith('data:') ? <img className="upload-preview" src={form.photo} alt="Selected member" /> : <div className="upload-placeholder"><UserRound size={24} /></div>}<div><strong>Profile photo</strong><label className="text-button upload-label"><Upload size={14} /> Upload photo<input type="file" accept="image/*" onChange={uploadPhoto} /></label><small>Optional</small></div></div><label>Full name<input autoFocus value={form.name} onChange={(event) => update('name', event.target.value)} placeholder="e.g. Ana Reyes" /></label>  <label>Position<select className="goal-select modal-select" value={form.position} onChange={(event) => update('position', event.target.value)}><option>Provincial</option><option>City</option><option>Locale</option><option>K&amp;T</option>  </select></label>{isMentors && <><label>Gender<select className="goal-select modal-select" value={form.gender} onChange={(event) => update('gender', event.target.value)}><option>Not specified</option><option>Female</option><option>Male</option><option>Non-binary</option></select></label><label>Status<select className="goal-select modal-select" value={form.status} onChange={(event) => update('status', event.target.value)}><option>Student</option><option>Working Student</option><option>Employed</option>  <option>Unemployed</option></select></label><label>Unpaid balance<input type="number" min="0" value={form.unpaidBalance} onChange={(event) => update('unpaidBalance', event.target.value)} placeholder="0.00" /></label></> }<div className="modal-actions"><button type="button" className="button button-quiet" onClick={onCancel}>Cancel</button><button className="button button-primary" type="submit">{member ? <Check size={16} /> : <Plus size={16} />} {member ? 'Save changes' : 'Add member'}</button></div></form></div></div>{cropSource && <ImageCropper source={cropSource} onCancel={() => setCropSource('')} onSave={(image) => { update('photo', image); setCropSource(''); }} />}</>;
 }
 
-function LiquidationPage({ report, onReportChange, receipts, onReceiptChange, sheetLink, onSheetLinkChange, isAdministrator }) {
-  const readFile = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, size: file.size, type: file.type, dataUrl: reader.result });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-  const download = (file) => {
-    if (!file?.dataUrl) return;
-    const link = document.createElement('a');
-    link.href = file.dataUrl;
-    link.download = file.name;
-    link.click();
-  };
-  const preview = (file) => {
-    if (!file?.dataUrl) return <div className="file-preview-placeholder">Preview unavailable for this file.</div>;
-    if (file.type?.startsWith('image/')) return <img className="file-preview-image" src={file.dataUrl} alt={`Preview of ${file.name}`} />;
-    if (file.type === 'application/pdf') return <iframe className="file-preview-frame" src={file.dataUrl} title={`Preview of ${file.name}`} />;
-    return <div className="file-preview-placeholder"><FileSpreadsheet size={18} /> {file.name} is ready to download.</div>;
-  };
-  const addReport = async (event) => {
-    const file = event.target.files?.[0];
-    if (file) onReportChange(await readFile(file));
-    event.target.value = '';
-  };
-  const addReceipt = async (event) => {
-    const file = event.target.files?.[0];
-    if (file) onReceiptChange([await readFile(file), ...receipts]);
-    event.target.value = '';
-  };
-  const replaceReceipt = async (event, index) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      const replacement = await readFile(file);
-      onReceiptChange(receipts.map((receipt, receiptIndex) => receiptIndex === index ? replacement : receipt));
+function LiquidationPage({
+  report,
+  onReportChange,
+  receipts,
+  onReceiptChange,
+  sheetLink,
+  onSheetLinkChange,
+  driveEndpoint,
+  onDriveEndpointChange,
+  group,
+  isAdministrator,
+}) {
+  const [driveEndpointDraft, setDriveEndpointDraft] = useState(driveEndpoint);
+  const [busy, setBusy] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const [previewData, setPreviewData] = useState({});
+  const migrating = useRef(new Set());
+
+  useEffect(() => setDriveEndpointDraft(driveEndpoint), [driveEndpoint]);
+
+  useEffect(() => {
+    if (!driveEndpoint || !group) return undefined;
+    const migrateLegacyFile = async (file, category) => {
+      if (!file?.dataUrl || file.driveId || migrating.current.has(file.id)) return;
+      migrating.current.add(file.id);
+      try {
+        const saved = await uploadDriveFile(driveEndpoint, group, category, file);
+        const next = { ...saved, id: saved.driveId };
+        delete next.dataUrl;
+        if (category === 'report') {
+          onReportChange((current) => current?.id === file.id ? next : current);
+        } else {
+          onReceiptChange((current) => current.map((receipt) => receipt.id === file.id ? next : receipt));
+        }
+      } catch (error) {
+        migrating.current.delete(file.id);
+        setFileError(`Could not move ${file.name} to Google Drive: ${error.message}`);
+      }
+    };
+
+    if (report?.dataUrl) migrateLegacyFile(report, 'report');
+    receipts.forEach((receipt) => {
+      if (receipt.dataUrl) migrateLegacyFile(receipt, 'receipt');
+    });
+  }, [driveEndpoint, group, report, receipts, onReportChange, onReceiptChange]);
+
+  useEffect(() => {
+    if (!driveEndpoint || !group) return undefined;
+    let active = true;
+    const loadPreview = async (file, category) => {
+      if (!file?.driveId || file.dataUrl || !(file.type?.startsWith('image/') || file.type === 'application/pdf')) return;
+      try {
+        const downloaded = await downloadDriveFile(driveEndpoint, group, category, file.driveId);
+        if (active) setPreviewData((current) => ({
+          ...current,
+          [file.driveId]: `data:${downloaded.type};base64,${downloaded.base64}`,
+        }));
+      } catch (error) {
+        if (active) setFileError(`Could not preview ${file.name}: ${error.message}`);
+      }
+    };
+    loadPreview(report, 'report');
+    loadPreview(receipts[0], 'receipt');
+    return () => { active = false; };
+  }, [driveEndpoint, group, report?.driveId, report?.dataUrl, receipts[0]?.driveId, receipts[0]?.dataUrl]);
+
+  const runFileAction = async (action) => {
+    setBusy(true);
+    setFileError('');
+    try {
+      await action();
+    } catch (error) {
+      console.error('Google Drive file operation failed', error);
+      setFileError(error.message || 'Google Drive file operation failed.');
+    } finally {
+      setBusy(false);
     }
+  };
+
+  const handleUpload = (file, category, replaceDriveId = '', replaceReceiptId = '') => runFileAction(async () => {
+    const saved = await uploadDriveFile(driveEndpoint, group, category, file, replaceDriveId);
+    const next = { ...saved, id: saved.driveId };
+    if (category === 'report') onReportChange(next);
+    else onReceiptChange((current) => replaceReceiptId
+      ? current.map((receipt) => receipt.id === replaceReceiptId ? next : receipt)
+      : [next, ...current]);
+  });
+
+  const download = (file, category) => runFileAction(async () => {
+    if (file.dataUrl) {
+      const link = document.createElement('a');
+      link.href = file.dataUrl;
+      link.download = file.name;
+      link.click();
+      return;
+    }
+    const downloaded = await downloadDriveFile(driveEndpoint, group, category, file.driveId);
+    const objectUrl = URL.createObjectURL(base64ToBlob(downloaded.base64, downloaded.type));
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = downloaded.name;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  });
+
+  const replaceReceipt = (event, index) => {
+    const file = event.target.files?.[0];
+    if (file) handleUpload(file, 'receipt', receipts[index].driveId || '', receipts[index].id);
     event.target.value = '';
   };
+
   const editReceiptName = (index) => {
     const current = receipts[index];
-    const name = window.prompt('Receipt name', current.name);
-    if (name?.trim()) onReceiptChange(receipts.map((receipt, receiptIndex) => receiptIndex === index ? { ...receipt, name: name.trim() } : receipt));
+    const name = window.prompt('Receipt name', current.name)?.trim();
+    if (!name || name === current.name) return;
+    if (!current.driveId) {
+      onReceiptChange((items) => items.map((receipt) => receipt.id === current.id
+        ? { ...receipt, name }
+        : receipt));
+      return;
+    }
+    runFileAction(async () => {
+      const renamed = await updateDriveFile(driveEndpoint, group, 'receipt', current.driveId, 'rename', name);
+      onReceiptChange((items) => items.map((receipt) => receipt.driveId === current.driveId
+        ? { ...receipt, name: renamed.name }
+        : receipt));
+    });
   };
+
   const removeReceipt = (index) => {
-    if (window.confirm(`Delete ${receipts[index].name}?`)) onReceiptChange(receipts.filter((_, receiptIndex) => receiptIndex !== index));
+    const receipt = receipts[index];
+    if (!window.confirm(`Delete ${receipt.name}?`)) return;
+    runFileAction(async () => {
+      if (receipt.driveId) await updateDriveFile(driveEndpoint, group, 'receipt', receipt.driveId, 'delete');
+      onReceiptChange((items) => items.filter((item) => item.id !== receipt.id));
+    });
   };
+
   const removeReport = () => {
-    if (window.confirm(`Delete ${report.name}?`)) onReportChange(null);
+    if (!window.confirm(`Delete ${report.name}?`)) return;
+    runFileAction(async () => {
+      if (report.driveId) await updateDriveFile(driveEndpoint, group, 'report', report.driveId, 'delete');
+      onReportChange(null);
+    });
   };
+
+  const saveDriveEndpoint = (event) => {
+    event.preventDefault();
+    const value = driveEndpointDraft.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(value)) {
+      setFileError('Enter the deployed Google Apps Script web app URL ending in /exec.');
+      return;
+    }
+    runFileAction(async () => {
+      await onDriveEndpointChange(value);
+      setFileError('');
+    });
+  };
+
   const saveSheetLink = (event) => {
     event.preventDefault();
     const value = event.currentTarget.elements.sheetLink.value.trim();
     if (!value || !/^https:\/\/docs\.google\.com\/spreadsheets\/d\//i.test(value)) {
-      window.alert('Enter a valid Google Sheets URL.');
+      setFileError('Enter a valid Google Sheets URL.');
       return;
     }
     onSheetLinkChange(value);
   };
-  return <div className="dashboard-content"><div className="page-heading"><div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div></div><div className="report-layout"><section className="panel report-panel"><div className="report-icon"><FileSpreadsheet size={28} /></div><h2>Keep your reports in one place</h2><p className="muted">Uploaded files stay on this device. Add a shared Google Sheet below for your team to use.</p><label className="dropzone"><Upload size={22} /><strong>{report ? report.name : 'Choose a file or drag it here'}</strong><span>Supported files: .xlsx, .exe · Max 25 MB</span><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label>{report && <><div className="uploaded-file"><FileSpreadsheet size={19} /><span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Preview available</small></span><button className="icon-button" onClick={() => download(report)} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button><label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" onChange={addReport} /></label><button className="icon-button danger-action" onClick={removeReport} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button></div><div className="file-preview">{preview(report)}</div></>}{isAdministrator && <form className="sheet-link-form" onSubmit={saveSheetLink}><label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label><button className="button button-primary" type="submit">Save link</button></form>}{sheetLink && <a className="sheet-link-card" href={sheetLink} target="_blank" rel="noreferrer"><ExternalLink size={18} /><span><strong>Open shared liquidation sheet</strong><small>Use the Google Sheet provided by the administrator.</small></span><ArrowUpRight size={16} /></a>}</section><section className="panel receipts-panel"><div className="panel-heading"><div><h2>Receipts</h2><p>Receipts are stored in this browser/device.</p></div><div className="receipt-count">{receipts.length}</div></div><label className="receipt-upload"><Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel</small></span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={addReceipt} /></label><div className="receipt-list">{receipts.length ? receipts.map((receipt, index) => <div className="receipt-item" key={`${receipt.name}-${index}`}><div className="receipt-file-icon"><FileSpreadsheet size={17} /></div><span><strong>{receipt.name}</strong><small>{(receipt.size / 1024).toFixed(1)} KB · Preview ready</small></span><button className="icon-button" onClick={() => download(receipt)} aria-label={`Download ${receipt.name}`}><ArrowDownToLine size={16} /></button><button className="icon-button" onClick={() => editReceiptName(index)} aria-label={`Rename ${receipt.name}`}><Pencil size={16} /></button><label className="icon-button" aria-label={`Replace ${receipt.name}`}><Upload size={16} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" onChange={(event) => replaceReceipt(event, index)} /></label><button className="icon-button danger-action" onClick={() => removeReceipt(index)} aria-label={`Delete ${receipt.name}`}><Trash2 size={16} /></button></div>) : <div className="empty-receipts">No receipts uploaded yet.</div>}</div>{receipts[0] && <div className="file-preview">{preview(receipts[0])}</div>}</section></div></div>;
+
+  const preview = (file) => {
+    const source = file?.dataUrl || previewData[file?.driveId];
+    if (!source) return <div className="file-preview-placeholder">Preview is loading, or is unavailable for this file type.</div>;
+    if (file.type?.startsWith('image/')) return <img className="file-preview-image" src={source} alt={`Preview of ${file.name}`} />;
+    if (file.type === 'application/pdf') return <iframe className="file-preview-frame" src={source} title={`Preview of ${file.name}`} />;
+    return <div className="file-preview-placeholder"><FileSpreadsheet size={18} /> {file.name} is ready to download.</div>;
+  };
+
+  const handleReportInput = (event) => {
+    const file = event.target.files?.[0];
+    if (file) handleUpload(file, 'report', report?.driveId || '');
+    event.target.value = '';
+  };
+
+  const handleReceiptInput = (event) => {
+    const file = event.target.files?.[0];
+    if (file) handleUpload(file, 'receipt');
+    event.target.value = '';
+  };
+
+  return (
+    <div className="dashboard-content">
+      <div className="page-heading">
+        <div><span className="eyebrow">DOCUMENT CENTER</span><h1>Liquidation report</h1><p>Upload, preview and download your financial reports.</p></div>
+      </div>
+      <div className="report-layout">
+        <section className="panel report-panel">
+          <div className="report-icon"><FileSpreadsheet size={28} /></div>
+          <h2>Keep your reports in one place</h2>
+          <p className="muted">Uploaded reports and receipts are saved to the administrator&apos;s Google Drive and shared with approved members of this group.</p>
+          {isAdministrator && (
+            <form className="sheet-link-form" onSubmit={saveDriveEndpoint}>
+              <label><Link size={16} /> Google Drive upload service URL
+                <input value={driveEndpointDraft} onChange={(event) => setDriveEndpointDraft(event.target.value)} placeholder="https://script.google.com/macros/s/.../exec" />
+              </label>
+              <button className="button button-primary" type="submit" disabled={busy}>Save Drive URL</button>
+            </form>
+          )}
+          {!driveEndpoint && <div className="drive-setup-note">Ask the administrator to deploy the Google Apps Script upload service and save its web app URL here before uploading files.</div>}
+          <label className={`dropzone ${!driveEndpoint || busy ? 'disabled' : ''}`}>
+            <Upload size={22} />
+            <strong>{busy ? 'Saving to Google Drive…' : report ? report.name : 'Choose a file or drag it here'}</strong>
+            <span>Supported files: .xlsx, .exe · Max 25 MB</span>
+            <input type="file" accept=".xlsx,.exe" disabled={!driveEndpoint || busy} onChange={handleReportInput} />
+          </label>
+          {report && (
+            <>
+              <div className="uploaded-file">
+                <FileSpreadsheet size={19} />
+                <span><strong>{report.name}</strong><small>{(report.size / 1024).toFixed(1)} KB · Saved to Drive</small></span>
+                <button className="icon-button" onClick={() => download(report, 'report')} disabled={busy} aria-label={`Download ${report.name}`}><ArrowDownToLine size={17} /></button>
+                <label className="icon-button" aria-label={`Replace ${report.name}`}><Pencil size={17} /><input type="file" accept=".xlsx,.exe" disabled={busy || !driveEndpoint} onChange={handleReportInput} /></label>
+                <button className="icon-button danger-action" onClick={removeReport} disabled={busy} aria-label={`Delete ${report.name}`}><Trash2 size={17} /></button>
+              </div>
+              <div className="file-preview">{preview(report)}</div>
+            </>
+          )}
+          {isAdministrator && (
+            <form className="sheet-link-form" onSubmit={saveSheetLink}>
+              <label><Link size={16} /> Google Sheets link<input name="sheetLink" type="url" defaultValue={sheetLink} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
+              <button className="button button-primary" type="submit">Save link</button>
+            </form>
+          )}
+          {sheetLink && <a className="sheet-link-card" href={sheetLink} target="_blank" rel="noreferrer"><ExternalLink size={18} /><span><strong>Open shared liquidation sheet</strong><small>Use the Google Sheet provided by the administrator.</small></span><ArrowUpRight size={16} /></a>}
+        </section>
+        <section className="panel receipts-panel">
+          <div className="panel-heading"><div><h2>Receipts</h2><p>Stored in the administrator&apos;s Google Drive.</p></div><div className="receipt-count">{receipts.length}</div></div>
+          <label className={`receipt-upload ${!driveEndpoint || busy ? 'disabled' : ''}`}>
+            <Upload size={18} /><span><strong>Upload receipt</strong><small>PDF, JPG, PNG or Excel · Max 25 MB</small></span>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" disabled={!driveEndpoint || busy} onChange={handleReceiptInput} />
+          </label>
+          <div className="receipt-list">
+            {receipts.length ? receipts.map((receipt, index) => (
+              <div className="receipt-item" key={receipt.driveId || receipt.id || `${receipt.name}-${index}`}>
+                <div className="receipt-file-icon"><FileSpreadsheet size={17} /></div>
+                <span><strong>{receipt.name}</strong><small>{(receipt.size / 1024).toFixed(1)} KB · Saved to Drive</small></span>
+                <button className="icon-button" onClick={() => download(receipt, 'receipt')} disabled={busy} aria-label={`Download ${receipt.name}`}><ArrowDownToLine size={16} /></button>
+                <button className="icon-button" onClick={() => editReceiptName(index)} disabled={busy} aria-label={`Rename ${receipt.name}`}><Pencil size={16} /></button>
+                <label className="icon-button" aria-label={`Replace ${receipt.name}`}><Upload size={16} /><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.doc,.docx" disabled={busy || !driveEndpoint} onChange={(event) => replaceReceipt(event, index)} /></label>
+                <button className="icon-button danger-action" onClick={() => removeReceipt(index)} disabled={busy} aria-label={`Delete ${receipt.name}`}><Trash2 size={16} /></button>
+              </div>
+            )) : <div className="empty-receipts">No receipts uploaded yet.</div>}
+          </div>
+          {receipts[0] && <div className="file-preview">{preview(receipts[0])}</div>}
+        </section>
+      </div>
+      {fileError && <div className="cloud-warning" role="alert"><span>{fileError}</span><button onClick={() => setFileError('')} aria-label="Dismiss Google Drive warning">Dismiss</button></div>}
+    </div>
+  );
 }
 
 function normalizeCollection(collection) {
@@ -696,6 +896,7 @@ function App() {
   const [receipts, setReceipts] = useState([]);
   const [duesUsage, setDuesUsage] = useState([]);
   const [sheetLink, setSheetLink] = useState('');
+  const [driveEndpoint, setDriveEndpoint] = useState(DEFAULT_DRIVE_ENDPOINT);
   const [adminDataVersion, setAdminDataVersion] = useState(0);
   const [storageError, setStorageError] = useState('');
   const [cloudError, setCloudError] = useState('');
@@ -733,6 +934,15 @@ function App() {
       setCloudError('Event choices could not be loaded from Firebase.');
     });
   }, [auth, account?.uid, account?.role]);
+  useEffect(() => {
+    if (!auth || !account) return undefined;
+    return watchDriveEndpoint((endpoint, fromCache) => {
+      if (!fromCache) setDriveEndpoint(endpoint || DEFAULT_DRIVE_ENDPOINT);
+    }, (error) => {
+      console.error('Unable to load the shared Google Drive endpoint', error);
+      setCloudError('Google Drive upload settings could not load from Firebase.');
+    });
+  }, [auth, account?.uid]);
   const readGroupData = (key, selectedGroup, fallback) => {
     try {
       return JSON.parse(localStorage.getItem(`tkvault-${key}-${selectedGroup}`)) || fallback;
@@ -793,6 +1003,21 @@ function App() {
   }, [report, receipts, sheetLink, duesUsage, group]);
   useEffect(() => {
     if (!group || !cloudReady) return;
+    const files = [
+      ...(report?.driveId ? [{ ...report, id: report.driveId, category: 'report' }] : []),
+      ...receipts.filter((receipt) => receipt.driveId).map((receipt) => ({
+        ...receipt,
+        id: receipt.driveId,
+        category: 'receipt',
+      })),
+    ];
+    syncGroupRecords(group, 'files', files, cloudBaselines.current.get(`${group}:files`)).catch((error) => {
+      console.error(`Unable to sync ${group} Drive file records`, error);
+      setCloudError('Google Drive file details could not sync to the group.');
+    });
+  }, [report, receipts, group, cloudReady]);
+  useEffect(() => {
+    if (!group || !cloudReady) return;
     setGroupMetadata(group, { goal, sheetLink, duesUsage }).catch((error) => {
       console.error(`Unable to sync ${group} settings`, error);
       setCloudError('Group settings could not sync to Firebase. Check your connection and Firestore setup.');
@@ -836,8 +1061,12 @@ function App() {
     const cleanMembers = storedMembers.filter((item) => !demoNames.has(item.name));
     setCollections(cleanCollections.map(normalizeCollection));
     setMembers(cleanMembers);
-    setReport(readGroupData('report', selectedGroup, null));
-    setReceipts(readGroupData('receipts', selectedGroup, []));
+    const storedReport = readGroupData('report', selectedGroup, null);
+    setReport(storedReport ? { ...storedReport, id: storedReport.id || createRecordId() } : null);
+    setReceipts(readGroupData('receipts', selectedGroup, []).map((receipt) => ({
+      ...receipt,
+      id: receipt.id || createRecordId(),
+    })));
     setSheetLink(localStorage.getItem(`tkvault-sheet-link-${selectedGroup}`) || '');
     setDuesUsage(readGroupData('dues-usage', selectedGroup, []));
     setGoal(readGroupData('goal', selectedGroup, 100000));
@@ -853,7 +1082,7 @@ function App() {
     const unsubscribers = [];
     targets.forEach((target) => {
       const isActiveGroup = target === group;
-      const ready = { collections: false, members: false, metadata: false };
+      const ready = { collections: false, members: false, files: false, metadata: false };
       const finishLoad = (key) => {
         ready[key] = true;
         if (isActiveGroup && Object.values(ready).every(Boolean)) setCloudReady(true);
@@ -865,14 +1094,26 @@ function App() {
           ? compactCollectionPhotos(records.map(normalizeCollection), readGroupData('members', target, []))
           : records;
         const storageKey = `tkvault-${recordType}-${target}`;
-        const localRecords = readGroupData(recordType, target, []);
+        const legacyFiles = recordType === 'files' ? [
+          ...(readGroupData('report', target, null) ? [{ ...readGroupData('report', target, null), id: 'report-local', category: 'report' }] : []),
+          ...readGroupData('receipts', target, []).map((receipt, index) => ({
+            ...receipt,
+            id: receipt.id || `receipt-local-${index}`,
+            category: 'receipt',
+          })),
+        ] : [];
+        const localRecords = recordType === 'files'
+          ? readGroupData('files', target, legacyFiles)
+          : readGroupData(recordType, target, []);
         if (normalized.length || !localRecords.length) {
-          const localError = saveLocalData(storageKey, normalized);
-          if (localError) setStorageError(localError);
+          if (recordType !== 'files') {
+            const localError = saveLocalData(storageKey, normalized);
+            if (localError) setStorageError(localError);
+          }
           window.dispatchEvent(new Event('tkvault-admin-data-change'));
         }
         if (normalized.length === 0) {
-          if (localRecords.length) {
+          if (localRecords.length && recordType !== 'files') {
             const recordsToMigrate = recordType === 'collections'
               ? compactCollectionPhotos(localRecords, readGroupData('members', target, []))
               : localRecords;
@@ -880,20 +1121,50 @@ function App() {
               console.error(`Unable to migrate ${target} ${recordType} to Firebase`, error);
               setCloudError(`Saved ${target} ${recordType} could not sync to Firebase.`);
             });
+          } else if (recordType === 'files') {
+            const localDriveFiles = localRecords.filter((file) => file.driveId).map((file) => ({
+              ...file,
+              id: file.driveId,
+            }));
+            if (localDriveFiles.length) {
+              syncGroupRecords(target, 'files', localDriveFiles, cloudBaselines.current.get(`${target}:files`)).catch((error) => {
+                console.error(`Unable to migrate ${target} Drive file details to Firebase`, error);
+                setCloudError(`Saved ${target} Drive file details could not sync to Firebase.`);
+              });
+            }
+            if (isActiveGroup && !localRecords.length) {
+              setReport(null);
+              setReceipts([]);
+            }
           } else if (isActiveGroup) {
             if (recordType === 'collections') setCollections([]);
             else setMembers([]);
           }
         } else if (isActiveGroup) {
           if (recordType === 'collections') setCollections(normalized);
-          else setMembers(normalized);
+          else if (recordType === 'members') setMembers(normalized);
+          else {
+            const remoteFiles = normalized;
+            const localLegacyFiles = localRecords.filter((file) => file.dataUrl);
+            const filesById = new Map(remoteFiles.map((file) => [String(file.id), file]));
+            localLegacyFiles.forEach((file) => {
+              if (!filesById.has(String(file.id))) filesById.set(String(file.id), file);
+            });
+            const mergedFiles = [...filesById.values()];
+            const reportFile = mergedFiles.find((file) => file.category === 'report') || null;
+            const receiptFiles = mergedFiles.filter((file) => file.category === 'receipt');
+            setReport(reportFile);
+            setReceipts(receiptFiles);
+            saveLocalData(`tkvault-report-${target}`, reportFile);
+            saveLocalData(`tkvault-receipts-${target}`, receiptFiles);
+          }
         }
         if (isActiveGroup) finishLoad(recordType);
       }, (error) => {
         console.error(`Unable to load ${target} ${recordType} from Firebase`, error);
         setCloudError(`Could not load ${target} ${recordType} from Firebase. Check Firestore rules and network access.`);
       });
-      unsubscribers.push(listenRecords('collections'), listenRecords('members'));
+      unsubscribers.push(listenRecords('collections'), listenRecords('members'), listenRecords('files'));
       unsubscribers.push(watchGroupMetadata(target, (metadata, fromCache) => {
         if (!active || fromCache) return;
         if (metadata) {
@@ -980,7 +1251,7 @@ function App() {
       {active === 'Admin Profile' && isAdministrator && <><AdministratorProfile members={allGroupMembers} /><PendingAccounts /></>}
       {active === "Member's Profile" && !isAdministrator && <InformationPage members={members} collections={collections} isMentors={group === 'Mentors'} readOnly={profileReadOnly} onAdd={() => setModal('member')} onAddWeeklyDue={applyWeeklyDues} onEdit={(member) => setModal({ type: 'edit-member', member })} onDelete={deleteMember} />}
       {active === 'Collections' && <CollectionsPage collections={collections} members={members} onAdd={(eventMode = false) => setModal({ type: 'collection', eventMode: eventMode === true })} onEdit={editCollection} onDelete={deleteCollection} />}
-      {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} isAdministrator={isAdministrator || adminGroupView} />}
+      {active === 'Liquidation Report' && <LiquidationPage report={report} onReportChange={setReport} receipts={receipts} onReceiptChange={setReceipts} sheetLink={sheetLink} onSheetLinkChange={setSheetLink} driveEndpoint={driveEndpoint} onDriveEndpointChange={async (endpoint) => { await saveDriveEndpoint(endpoint); setDriveEndpoint(endpoint); }} group={group} isAdministrator={isAdministrator || adminGroupView} />}
       {active === 'Settings' && <SettingsPage account={account} group={group} profileImage={profileImage} onProfileChange={updateProfile} isAdministrator={account.role === 'administrator'} />}
       {active === 'Administrator Monitor' && isAdministrator && <AdministratorMonitor collections={allGroupCollections} />}
     </main>

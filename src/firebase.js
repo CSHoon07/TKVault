@@ -30,6 +30,7 @@ const firebaseConfig = {
 };
 
 export const ADMIN_EMAIL = 'tkdvofinance@gmail.com';
+export const DEFAULT_DRIVE_ENDPOINT = 'https://script.google.com/macros/s/AKfycbyZOFtLmu_z7R4fTDgQ1qxKOaXGgVAK03v7V6wTA38KC3kkMtLxzFjZfDYI2rwQBFHfKQ/exec';
 const firebaseApp = initializeApp(firebaseConfig);
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
@@ -156,11 +157,24 @@ export async function saveEventOptions(options) {
   await setDoc(doc(db, 'appSettings', 'eventOptions'), { options });
 }
 
+export async function saveDriveEndpoint(endpoint) {
+  await setDoc(doc(db, 'appSettings', 'driveStorage'), { endpoint });
+}
+
 export function watchEventOptions(onOptions, onError) {
   return onSnapshot(
     doc(db, 'appSettings', 'eventOptions'),
     { includeMetadataChanges: true },
     (snapshot) => onOptions(snapshot.exists() ? snapshot.data().options : null, snapshot.metadata.fromCache),
+    onError,
+  );
+}
+
+export function watchDriveEndpoint(onEndpoint, onError) {
+  return onSnapshot(
+    doc(db, 'appSettings', 'driveStorage'),
+    { includeMetadataChanges: true },
+    (snapshot) => onEndpoint(snapshot.exists() ? snapshot.data().endpoint || '' : '', snapshot.metadata.fromCache),
     onError,
   );
 }

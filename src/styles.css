@@ -229,6 +229,8 @@ button { border: 0; cursor: pointer; }
 .storage-warning button { background: transparent; color: inherit; font-size: 11px; font-weight: 700; padding: 6px; }
 .cloud-warning { align-items: center; background: #fff8e8; border: 1px solid #f2ddaa; border-radius: 10px; color: #765715; display: flex; font-size: 12px; gap: 12px; justify-content: space-between; margin: 16px 4% 0; padding: 12px 14px; }
 .cloud-warning button { background: transparent; color: inherit; font-size: 11px; font-weight: 700; padding: 6px; }
+.drive-setup-note { background: #f4f7ff; border: 1px solid #e0e8ff; border-radius: 10px; color: #52627d; font-size: 12px; line-height: 1.55; margin: 14px 0; padding: 12px 14px; }
+.dropzone.disabled, .receipt-upload.disabled { cursor: not-allowed; opacity: .58; }
 .pending-accounts-panel { margin-top: 16px; }
 .pending-account-list { display: grid; }
 .pending-account-row { align-items: center; border-top: 1px solid #f0f2f6; display: flex; gap: 9px; padding: 12px 0; }
